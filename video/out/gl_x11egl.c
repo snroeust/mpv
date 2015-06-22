@@ -23,6 +23,7 @@
 #include <X11/Xlib.h>
 #include <EGL/egl.h>
 #include <EGL/eglext.h>
+#include <dlfcn.h>
 
 #include "common/common.h"
 #include "x11_common.h"
@@ -93,6 +94,14 @@ static bool create_context_egl(MPGLContext *ctx, EGLConfig config,
     return true;
 }
 
+static void *get_addr(const GLubyte *fn)
+{
+    void *r = eglGetProcAddress(fn);
+    if (r)
+        return r;
+    return dlsym(RTLD_DEFAULT, fn);
+}
+
 static bool config_window_x11_egl(struct MPGLContext *ctx, int flags)
 {
     struct priv *p = ctx->priv;
@@ -135,8 +144,7 @@ static bool config_window_x11_egl(struct MPGLContext *ctx, int flags)
         return false;
     }
 
-    void *(*gpa)(const GLubyte*) = (void *(*)(const GLubyte*))eglGetProcAddress;
-    mpgl_load_functions(ctx->gl, gpa, NULL, vo->log);
+    mpgl_load_functions(ctx->gl, get_addr, NULL, vo->log);
 
     return true;
 }
