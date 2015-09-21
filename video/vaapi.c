@@ -430,7 +430,7 @@ static struct mp_image *try_download(struct mp_image *src,
         mp_image_set_size(&tmp, src->w, src->h); // copy only visible part
         dst = mp_image_pool_get(pool, tmp.imgfmt, tmp.w, tmp.h);
         if (dst) {
-            mp_image_copy(dst, &tmp);
+            mp_image_copy_nc(dst, &tmp);
             mp_image_copy_attributes(dst, src);
         }
         va_image_unmap(p->ctx, image);

@@ -316,6 +316,44 @@ void mp_image_copy(struct mp_image *dst, struct mp_image *src)
         memcpy(dst->planes[1], src->planes[1], MP_PALETTE_SIZE);
 }
 
+#include "video/decode/gpu_memcpy_sse4.h"
+
+static void memcpy_pic_nc(void *dst, const void *src, int bytesPerLine, int height,
+                          int dstStride, int srcStride)
+{
+    if (bytesPerLine == dstStride && dstStride == srcStride && height) {
+        if (srcStride < 0) {
+            src = (uint8_t*)src + (height - 1) * srcStride;
+            dst = (uint8_t*)dst + (height - 1) * dstStride;
+            srcStride = -srcStride;
+        }
+
+        gpu_memcpy(dst, src, srcStride * (height - 1) + bytesPerLine);
+    } else {
+        for (int i = 0; i < height; i++) {
+            gpu_memcpy(dst, src, bytesPerLine);
+            src = (uint8_t*)src + srcStride;
+            dst = (uint8_t*)dst + dstStride;
+        }
+    }
+}
+
+void mp_image_copy_nc(struct mp_image *dst, struct mp_image *src)
+{
+    assert(dst->imgfmt == src->imgfmt);
+    assert(dst->w == src->w && dst->h == src->h);
+    assert(mp_image_is_writeable(dst));
+    for (int n = 0; n < dst->num_planes; n++) {
+        int line_bytes = (mp_image_plane_w(dst, n) * dst->fmt.bpp[n] + 7) / 8;
+        int plane_h = mp_image_plane_h(dst, n);
+        memcpy_pic_nc(dst->planes[n], src->planes[n], line_bytes, plane_h,
+                      dst->stride[n], src->stride[n]);
+    }
+    // Watch out for AV_PIX_FMT_FLAG_PSEUDOPAL retardation
+    if ((dst->fmt.flags & MP_IMGFLAG_PAL) && dst->planes[1] && src->planes[1])
+        memcpy(dst->planes[1], src->planes[1], MP_PALETTE_SIZE);
+}
+
 void mp_image_copy_attributes(struct mp_image *dst, struct mp_image *src)
 {
     dst->pict_type = src->pict_type;
