@@ -383,6 +383,10 @@ iconv support use --disable-iconv.",
         'desc': 'libarchive wrapper for reading zip files and more',
         'func': check_pkg_config('libarchive >= 3.0.0'),
         'default': 'disable',
+    }, {
+        'name': 'opencv',
+        'desc': 'Open Computer Vision library',
+        'func': check_pkg_config('opencv'),
     }
 ]
 
