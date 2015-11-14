@@ -49,6 +49,9 @@ static void mp_to_ocv_image(IplImage* out, struct mp_image* in)
     out->maskROI = 0;
     out->origin = 0; //top-left origin
     out->dataOrder = 0; //Interleaved pixel data: R,G,B,R,G,B,...
+    out->imageId = 0;
+    out->tileInfo = 0;
+    out->align = 4;
     
     out->depth = IPL_DEPTH_8U; //8 Bits per color channel, unsigned
     out->height = in->h;
@@ -57,6 +60,7 @@ static void mp_to_ocv_image(IplImage* out, struct mp_image* in)
     out->imageDataOrigin = in->planes[0];
     out->nChannels = in->fmt.bpp[0] / 8; //Bytes per pixel
     out->widthStep = (mp_image_plane_w(in, 0) * in->fmt.bpp[0] + 7) / 8;
+    out->imageSize = out->widthStep * out->height;
 }
 
 static struct mp_image *filter(struct vf_instance *vf, struct mp_image *mpi)
