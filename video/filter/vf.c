@@ -62,6 +62,7 @@ extern const vf_info_t vf_info_vdpaupp;
 extern const vf_info_t vf_info_vdpaurb;
 extern const vf_info_t vf_info_buffer;
 extern const vf_info_t vf_info_canny;
+extern const vf_info_t vf_info_vector;
 
 
 // list of available filters:
@@ -105,6 +106,7 @@ static const vf_info_t *const filter_list[] = {
 #endif
 #if HAVE_OPENCV
     &vf_info_canny,
+    &vf_info_vector,
 #endif
     NULL
 };
