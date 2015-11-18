@@ -98,12 +98,12 @@ static struct mp_image *filter(struct vf_instance *vf, struct mp_image *mpi)
     if (contours){
         //Count the number of vectors to draw
         CvSeq* c = contours;
-        while ((c = c->h_next)){
+        do {
             int length = c->total;
             if (length >= priv->cfg_min_length){
                 num_vectors+=length;
             }
-        }
+        } while ((c = c->h_next));
     }
     
     if ((num_vectors > 0) && (num_vectors <= max_vectors)){
@@ -114,7 +114,7 @@ static struct mp_image *filter(struct vf_instance *vf, struct mp_image *mpi)
        v.z = 0xFF; //Beam on
        
         CvSeq* c = contours;
-        while ((c = c->h_next)){
+        do {
             int length = c->total;
             if (length >= priv->cfg_min_length){
                 for (int i = 0; i < length; i++){
@@ -131,7 +131,7 @@ static struct mp_image *filter(struct vf_instance *vf, struct mp_image *mpi)
                     }
                 }
             }
-        }
+        } while ((c = c->h_next));
     }
     // Fill unused pixels
     memset((char*)dst, 0x0,  ocv_out.imageSize - ((char*)dst - ocv_out.imageData));
