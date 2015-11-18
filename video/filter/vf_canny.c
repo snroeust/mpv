@@ -85,7 +85,7 @@ static struct mp_image *filter(struct vf_instance *vf, struct mp_image *mpi)
 static int query_format(struct vf_instance *vf, unsigned int fmt)
 {
     //RGB input
-    if (fmt == IMGFMT_RGB24){
+    if ((fmt == IMGFMT_RGB24) || (fmt == IMGFMT_Y8)){
         return vf_next_query_format(vf, IMGFMT_Y8); //Grayscale output goes to next filter/output in chain
     } else {
         return 0;
