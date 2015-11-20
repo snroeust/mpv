@@ -31,7 +31,6 @@
 #include "options/m_option.h"
 
 #include <cv.h>
-#include <highgui.h>
 
 static struct vf_priv_s {
     int cfg_width, cfg_height;
@@ -80,48 +79,58 @@ static struct mp_image *filter(struct vf_instance *vf, struct mp_image *mpi)
     struct mp_image *out_image = mp_image_alloc(IMGFMT_RGB0, priv->cfg_width, priv->cfg_height);
     if (!out_image) return NULL;
     if (!mp_image_make_writeable(out_image)) return NULL;
+    struct mp_image* work_img = mp_image_new_copy(mpi);
     
     IplImage ocv_in;
+    IplImage ocv_work;
     IplImage ocv_out;
     mp_to_ocv_image(&ocv_in, mpi);
+    mp_to_ocv_image(&ocv_work, work_img);
     mp_to_ocv_image(&ocv_out, out_image);
     
-//     unsigned int ivector = 0;
-    unsigned int max_vectors = ocv_out.width * ocv_out.height;
-    unsigned int num_vectors = 0;
+    unsigned int max_length = ocv_out.width * ocv_out.height;
     vector_t* dst = (vector_t*)ocv_out.imageData;
     
     CvMemStorage *storage = cvCreateMemStorage(0);
     CvSeq* contours;
-    cvFindContours(&ocv_in, storage, &contours, sizeof(CvContour), CV_RETR_LIST, CV_CHAIN_APPROX_NONE, cvPoint(0, 0));
+    cvFindContours(&ocv_work, storage, &contours, sizeof(CvContour), CV_RETR_LIST, CV_CHAIN_APPROX_NONE, cvPoint(0, 0));
+    
+    unsigned long total_length = 0;
     
     if (contours){
         //Count the number of vectors to draw
         CvSeq* c = contours;
         do {
-            int length = c->total;
-            if (length >= priv->cfg_min_length){
-                num_vectors+=length;
+            int num_points = c->total;
+            if (num_points >= priv->cfg_min_length){
+                for (int i = 0; i < num_points; i++){
+                    CvPoint* point = CV_GET_SEQ_ELEM(CvPoint, c, i);
+                    //Draw length (^= draw time) proportional to brightness
+                    uint8_t brightness = (uint8_t)ocv_in.imageData[point->x + point->y * ocv_in.widthStep];
+                    total_length += brightness;
+                }
             }
         } while ((c = c->h_next));
     }
-    
-    if ((num_vectors > 0) && (num_vectors <= max_vectors)){
+
+    if ((total_length > 0)){
         
-       float scale = (float)max_vectors / (float)num_vectors;
-       float remain = 0;
-       vector_t v;
-       v.z = 0xFF; //Beam on
-       
+        float scale = (float)max_length / (float)total_length;
+        float remain = 0;
+        vector_t v;
+        v.z = 0xFF; //Beam on
+        
         CvSeq* c = contours;
         do {
-            int length = c->total;
-            if (length >= priv->cfg_min_length){
-                for (int i = 0; i < length; i++){
+            int num_points = c->total;
+            if (num_points >= priv->cfg_min_length){
+                for (int i = 0; i < num_points; i++){
                     CvPoint* point = CV_GET_SEQ_ELEM(CvPoint, c, i);
+                    uint8_t brightness = (uint8_t)ocv_in.imageData[point->x + point->y * ocv_in.widthStep];
                     //Can only draw full vectors, accumulate rounding errors and draw one additional vector when > 1
-                    int iscale = scale + remain;
-                    remain += scale - iscale;
+                    float pscale = scale * brightness;
+                    int iscale = pscale + remain;
+                    remain += pscale - iscale;
                     
                     v.x = (point->x * 0xFF / ocv_in.width); //Scale to full "color" depth
                     v.y = 0xFF - (point->y * 0xFF / ocv_in.height);
@@ -140,6 +149,7 @@ static struct mp_image *filter(struct vf_instance *vf, struct mp_image *mpi)
     
     cvReleaseMemStorage(&storage);
     talloc_free(mpi);
+    talloc_free(work_img);
     return out_image;
 }
 
