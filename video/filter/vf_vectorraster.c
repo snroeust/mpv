@@ -46,71 +46,62 @@ typedef union vector{
     uint32_t pattern;
 } vector_t;
 
-static const unsigned int scan_width   = 256;
-static const unsigned int scan_height  = 256;
-static const unsigned int blank_length = 60;
+static const unsigned long scan_width   = 256;
+static const unsigned long scan_height  = 256;
 
 #define BRIGHTNESS2LENGTH(x) ((x+1)*(x+1)*(x+1)) //Increased
 
-static struct mp_image *filter(struct vf_instance *vf, struct mp_image *mpi)
-{
+static struct mp_image *filter(struct vf_instance *vf, struct mp_image *mpi){
+    
     struct vf_priv_s *priv = vf->priv;
     struct mp_image *out_image = mp_image_alloc(IMGFMT_RGB0, priv->cfg_width, priv->cfg_height);
     if (!out_image) return NULL;
     if (!mp_image_make_writeable(out_image)) return NULL;
     
     uint8_t* src = mpi->planes[0];
-    unsigned int in_stepwidth = (mp_image_plane_w(mpi, 0) * mpi->fmt.bpp[0] + 7) / 8;    
+    unsigned long in_stepwidth = (mp_image_plane_w(mpi, 0) * mpi->fmt.bpp[0] + 7) / 8;    
     vector_t* dst = (vector_t*) out_image->planes[0];
-    unsigned int out_stepwidth = (mp_image_plane_w(out_image, 0) * out_image->fmt.bpp[0] + 7) / 8;    
+    unsigned long out_stepwidth = (mp_image_plane_w(out_image, 0) * out_image->fmt.bpp[0] + 7) / 8;    
 
-    unsigned long max_length = (out_image->w - blank_length) * out_image->h;    
+    unsigned long max_length = out_image->w * out_image->h;
     unsigned long total_length = 0;
     
-    for (unsigned int y = 0; y < scan_height; y++){
-        for (unsigned int x = 0; x < scan_width; x++){
-            unsigned long brightness = src[in_stepwidth * (mpi->h - 1 - (y * mpi->h / scan_height)) + (x * mpi->w / scan_width)];
+    for (unsigned long y = 0; y < scan_height; y++){
+        for (unsigned long x = 0; x < scan_width; x++){
+            unsigned long sx = (y & 1) ? (scan_width - 1 - x) : x; //Avoid scan back after each line by changing scan direction
+            unsigned long brightness = src[in_stepwidth * (mpi->h - 1 - (y * mpi->h / scan_height)) + (sx * mpi->w / scan_width)];
+            if (sx == 0) brightness = 0xFF; //Ensure leftmost pixel is drawn, to force the beam to scan the entire line and don't start in the middle
             total_length += BRIGHTNESS2LENGTH(brightness);
         }
     }
-    
-    unsigned long length_done = 0;
-    
+        
     if (total_length > 0){
         
-        for (unsigned int y = 0; y < scan_height; y++){
+        for (unsigned long y = 0; y < scan_height; y++){
             
-            vector_t dummy = {{0,y}};
-            for (int i = 0; i < blank_length/2; i++){
-                *dst = dummy;
-                dst++;
-            }
-            
-            for (unsigned int x = 0; x < scan_width; x++){
-                unsigned int sx = (y & 1) ? (scan_width - 1 - x) : x; //Avoid scan back after each line by changing scan direction
+            for (unsigned long x = 0; x < scan_width; x++){
+                unsigned long sx = (y & 1) ? (scan_width - 1 - x) : x; //Avoid scan back after each line by changing scan direction
                 unsigned long brightness = src[in_stepwidth * (mpi->h - 1 - (y * mpi->h / scan_height)) + (sx * mpi->w / scan_width)];
+                if (sx == 0) brightness = 0xFF; //Ensure leftmost pixel is drawn, to force the beam to scan the entire line and don't start in the middle
                 unsigned long length = BRIGHTNESS2LENGTH(brightness) * max_length / total_length;
-                length_done += length;
-                if (length_done > max_length) break;
                 
                 vector_t v = {{sx,y,0xFF}};
                 
-                for (int i = 0; i < length; i++){
+                for (long i = 0; i < length; i++){
+                    if ((void*)dst > (void*)(out_image->planes[0] + (out_stepwidth * out_image->h))){
+                        printf("overflow im\n");
+                        break;
+                    }
                     *dst = v;
                     dst++;
                 }
             }
-            
-            vector_t dummy2 = {{scan_width-1,y}};
-            for (int i = 0; i < blank_length/2; i++){
-                *dst = dummy2;
-                dst++;
-            }
         }
     }
     
+    
     // Fill unused pixels
-    if (((char*)dst - (char*)out_image->planes[0]) > 0){
+    if ((void*)dst < (void*)(out_image->planes[0] + (out_stepwidth * out_image->h))){
         memset((char*)dst, 0x0, (out_stepwidth * out_image->h) - ((char*)dst - (char*)out_image->planes[0]));
     }
     
