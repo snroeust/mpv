@@ -69,8 +69,7 @@ static struct mp_image *filter(struct vf_instance *vf, struct mp_image *mpi)
     
     for (unsigned int y = 0; y < scan_height; y++){
         for (unsigned int x = 0; x < scan_width; x++){
-            unsigned long brightness = src[in_stepwidth * (scan_height - 1 - (y * mpi->h / scan_height)) + (x * mpi->w / scan_width)];
-//             unsigned long brightness = src[in_stepwidth * (scan_height - 1 - y) + x];
+            unsigned long brightness = src[in_stepwidth * (mpi->h - 1 - (y * mpi->h / scan_height)) + (x * mpi->w / scan_width)];
             total_length += BRIGHTNESS2LENGTH(brightness);
         }
     }
@@ -89,8 +88,7 @@ static struct mp_image *filter(struct vf_instance *vf, struct mp_image *mpi)
             
             for (unsigned int x = 0; x < scan_width; x++){
                 unsigned int sx = (y & 1) ? (scan_width - 1 - x) : x; //Avoid scan back after each line by changing scan direction
-                unsigned long brightness = src[in_stepwidth * (scan_height - 1 - (y * mpi->h / scan_height)) + (sx * mpi->w / scan_width)];
-//                 unsigned long brightness = src[in_stepwidth * (scan_height - 1 - y) + sx];
+                unsigned long brightness = src[in_stepwidth * (mpi->h - 1 - (y * mpi->h / scan_height)) + (sx * mpi->w / scan_width)];
                 unsigned long length = BRIGHTNESS2LENGTH(brightness) * max_length / total_length;
                 length_done += length;
                 if (length_done > max_length) break;
