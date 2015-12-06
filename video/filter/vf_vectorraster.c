@@ -155,7 +155,7 @@ static const m_option_t vf_opts_fields[] = {
 };
 
 const vf_info_t vf_info_vectorraster = {
-    .description   = "vector output",
+    .description   = "raster output on vector display",
     .name          = "vectorraster",
     .open          = vf_open,
     .priv_size     = sizeof(struct vf_priv_s),
