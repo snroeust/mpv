@@ -1,9 +1,32 @@
+## mpv VGA vector graphics fork
+
+This fork of mpv contains additional video filters (-vf canny, -vf vector) to produce vector graphics on the standard PC VGA port.
+X and Y deflection is output on the red and green color channel. A digital beam enable signal is provided on the blue color channel output.
+
+## Additional depenencies over regular mpv
+
+* opencv (http://opencv.org)
+* ffmpeg (https://ffmpeg.org/, recommended over libav for the edgedetect filter)
+
+## Usage examples
+
+Output vector graphics on the VGA port configured to 2048x200 left of the primary monitor:
+
+``mpv --fs --geometry=<WIDTH-PRIMARY-MONITOR>:0 --loop --vf scale=576:512,lavfi=[edgedetect=high=0.04:low=0.03],vector:width=2048:height=200 <VIDEO>``
+
+If you don't have the edgedetect filter you can use the canny filter instead:
+
+``mpv --fs --geometry=<WIDTH-PRIMARY-MONITOR>:0 --loop --vf scale=576:512,canny:t1=128:t2=130,vector:width=2048:height=200 <VIDEO>``
+
+The optimal values for t1 (or low) and t2 (or high) can depend on source video. Just try a few.
+
+## Original mpv README
+
 ![http://mpv.io/](https://raw.githubusercontent.com/mpv-player/mpv.io/master/source/images/mpv-logo-128.png)
 
 ## mpv
 
 --------------
-
 
 * [Overview](#overview)
 * [Downloads](#downloads)
