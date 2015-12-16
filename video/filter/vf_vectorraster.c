@@ -70,7 +70,7 @@ static struct mp_image *filter(struct vf_instance *vf, struct mp_image *mpi){
         for (unsigned long x = 0; x < scan_width; x++){
             unsigned long sx = (y & 1) ? (scan_width - 1 - x) : x; //Avoid scan back after each line by changing scan direction
             unsigned long brightness = src[in_stepwidth * (mpi->h - 1 - (y * mpi->h / scan_height)) + (sx * mpi->w / scan_width)];
-            if (sx == 0) brightness = 0xFF; //Ensure leftmost pixel is drawn, to force the beam to scan the entire line and don't start in the middle
+            if (sx == 0 || (sx == (scan_width-1))) brightness = 0xF0; //Ensure leftmost pixel is drawn, to force the beam to scan the entire line and don't start in the middle
             total_length += BRIGHTNESS2LENGTH(brightness);
         }
     }
@@ -82,7 +82,7 @@ static struct mp_image *filter(struct vf_instance *vf, struct mp_image *mpi){
             for (unsigned long x = 0; x < scan_width; x++){
                 unsigned long sx = (y & 1) ? (scan_width - 1 - x) : x; //Avoid scan back after each line by changing scan direction
                 unsigned long brightness = src[in_stepwidth * (mpi->h - 1 - (y * mpi->h / scan_height)) + (sx * mpi->w / scan_width)];
-                if (sx == 0) brightness = 0xFF; //Ensure leftmost pixel is drawn, to force the beam to scan the entire line and don't start in the middle
+                if (sx == 0 || (sx == (scan_width-1))) brightness = 0xF0; //Ensure leftmost pixel is drawn, to force the beam to scan the entire line and don't start in the middle
                 unsigned long length = BRIGHTNESS2LENGTH(brightness) * max_length / total_length;
                 
                 vector_t v = {{sx,y,0xFF}};
