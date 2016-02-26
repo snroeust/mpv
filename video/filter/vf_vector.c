@@ -15,6 +15,16 @@
  * with mpv.  If not, see <http://www.gnu.org/licenses/>.
  */
 
+/*
+ * -- Naming --
+ * Contour:   List of adjacent points as outputed by cvFindContours
+ * Point:     Point in a contour
+ * Distance:  Distance between two points (typically end of one contour to begging of the next)
+ * Time:      (unscaled) Scanout time of the Point (input image values, 0-255), contour (sum of point times), or travel delay time (between contours)
+ * Length:    Intensity of the contour scaled to make all countours fill output bitmap size.
+ * 
+ */
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -32,12 +42,19 @@
 
 #include <cv.h>
 
+
 static struct vf_priv_s {
     int cfg_width, cfg_height;
+    double cfg_move_scale;
+    double cfg_blank_scale;
     double cfg_min_length;
+    int cfg_sort;
 } const vf_priv_dflt = {
     800, 600,
-    3
+    0,
+    0,
+    3,
+    1
 };
 
 typedef union vector{
@@ -49,6 +66,11 @@ typedef union vector{
     };
     uint32_t pattern;
 } vector_t;
+
+//static unsigned long jump_to(vector_t** path, IplImage* ocv_in, unsigned long total_time , struct vf_priv_s* config, CvPoint* location);
+static unsigned long calculate_move_time(CvSeq* contour, CvPoint* current_point, double move_speed);
+static unsigned long calculate_contour_time(IplImage* image, CvSeq* contour, CvPoint* current_point, double move_speed);
+static vector_t* add_point(vector_t* p, IplImage* image , unsigned long length, CvPoint* point, unsigned int z);
 
 static void mp_to_ocv_image(IplImage* out, struct mp_image* in)
 {
@@ -73,57 +95,95 @@ static void mp_to_ocv_image(IplImage* out, struct mp_image* in)
     out->imageSize = out->widthStep * out->height;
 }
 
-static struct mp_image *filter(struct vf_instance *vf, struct mp_image *mpi)
+static struct mp_image *filter(struct vf_instance *vf, struct mp_image *mpi_in)
 {
-    struct vf_priv_s *priv = vf->priv;
-    struct mp_image *out_image = mp_image_alloc(IMGFMT_RGB0, priv->cfg_width, priv->cfg_height);
-    if (!out_image) return NULL;
-    if (!mp_image_make_writeable(out_image)) return NULL;
-    struct mp_image* work_img = mp_image_new_copy(mpi);
+    struct vf_priv_s* priv = vf->priv;
+    struct mp_image* mpi_out = mp_image_alloc(IMGFMT_RGB0, priv->cfg_width, priv->cfg_height);
+    if (!mpi_out) return NULL;
+    if (!mp_image_make_writeable(mpi_out)) return NULL;
+    struct mp_image* mpi_work = mp_image_new_copy(mpi_in); //cvFindContours modifies the input, take a copy because we don't own the input image.
     
     IplImage ocv_in;
     IplImage ocv_work;
     IplImage ocv_out;
-    mp_to_ocv_image(&ocv_in, mpi);
-    mp_to_ocv_image(&ocv_work, work_img);
-    mp_to_ocv_image(&ocv_out, out_image);
+    mp_to_ocv_image(&ocv_in,   mpi_in);
+    mp_to_ocv_image(&ocv_work, mpi_work);
+    mp_to_ocv_image(&ocv_out,  mpi_out);
     
-    unsigned int max_length = ocv_out.width * ocv_out.height;
+    unsigned int max_time = ocv_out.width * ocv_out.height;
     vector_t* dst = (vector_t*)ocv_out.imageData;
     
     CvMemStorage *storage = cvCreateMemStorage(0);
     CvSeq* contours;
     cvFindContours(&ocv_work, storage, &contours, sizeof(CvContour), CV_RETR_LIST, CV_CHAIN_APPROX_NONE, cvPoint(0, 0));
     
-    unsigned long total_length = 0;
+//     if(priv->cfg_sort && contours){
+//         CvMemStorage *storage_sort = cvCreateMemStorage(0);
+//         CvSeq* contours_sort = cvCreateSeq(1117343756, 128, sizeof(CvSeq*), storage_sort);
+//         CvSeq* c = 0;
+//         CvPoint* last_point = 0;
+//         
+//         do {
+//             CvSeq* min_move_seq = 0;
+//             unsigned int min_move_time = 0xFFFFFFFF;
+//         
+//             CvSeq* d = contours;
+//             
+//             do {
+//                 if (d != c){
+//                     int move_time = calculate_move_time(d, last_point, 1);
+//                     if (move_time < min_move_time) min_move_seq = d;
+//                 }
+//             } while ((d = d->h_next));
+//             
+//             if (min_move_seq){
+//                 cvSeqPush(contours_sort, min_move_seq);
+//                 last_point = CV_GET_SEQ_ELEM(CvPoint, c, min_move_seq->total - 1);
+//             }
+//             
+//         } while ((c = d->h_next));
+//         
+//         cvReleaseMemStorage(&storage);
+//         storage = storage_sort;
+//         contours = contours_sort;
+//     }
     
+    unsigned long total_time = 0;
+
+    
+    CvPoint* last_point = 0;
+
     if (contours){
         //Count the number of vectors to draw
         CvSeq* c = contours;
         do {
             int num_points = c->total;
             if (num_points >= priv->cfg_min_length){
-                for (int i = 0; i < num_points; i++){
-                    CvPoint* point = CV_GET_SEQ_ELEM(CvPoint, c, i);
-                    //Draw length (^= draw time) proportional to brightness
-                    uint8_t brightness = (uint8_t)ocv_in.imageData[point->x + point->y * ocv_in.widthStep];
-                    total_length += brightness;
-                }
+                total_time += calculate_contour_time(&ocv_in,c, last_point, priv->cfg_move_scale);
+                last_point =  CV_GET_SEQ_ELEM(CvPoint, c, num_points - 1);
             }
         } while ((c = c->h_next));
     }
 
-    if ((total_length > 0)){
-        
-        float scale = (float)max_length / (float)total_length;
+    if ((total_time > 0)){
+        float scale = (float)max_time / (float)total_time;
         float remain = 0;
-        vector_t v;
-        v.z = 0xFF; //Beam on
         
         CvSeq* c = contours;
         do {
-            int num_points = c->total;
+            int num_points = c->total;           
+            
             if (num_points >= priv->cfg_min_length){
+                if (priv->cfg_move_scale){
+                    //Beam move/fill
+                    CvPoint* first_point = CV_GET_SEQ_ELEM(CvPoint, c, 0);
+                    unsigned long move_points = calculate_move_time(c, last_point, priv->cfg_move_scale) * scale;
+                    unsigned long on_points   = move_points * priv->cfg_blank_scale;
+                    unsigned long off_points  = move_points - on_points;
+                    dst = add_point(dst, &ocv_in, off_points, first_point, 0x00);
+                    dst = add_point(dst, &ocv_in, on_points,  first_point, 0xFF);
+                }
+                
                 for (int i = 0; i < num_points; i++){
                     CvPoint* point = CV_GET_SEQ_ELEM(CvPoint, c, i);
                     uint8_t brightness = (uint8_t)ocv_in.imageData[point->x + point->y * ocv_in.widthStep];
@@ -131,27 +191,82 @@ static struct mp_image *filter(struct vf_instance *vf, struct mp_image *mpi)
                     float pscale = scale * brightness;
                     int iscale = pscale + remain;
                     remain += pscale - iscale;
-                    
-                    v.x = (point->x * 0xFF / ocv_in.width); //Scale to full "color" depth
-                    v.y = 0xFF - (point->y * 0xFF / ocv_in.height);
-                    for (int j = 0; j < iscale; j++){
-                        dst->pattern = v.pattern;
-                        dst++;
-                    }
+
+                    dst = add_point(dst, &ocv_in, iscale,  point, 0xFF);
                 }
+                last_point = CV_GET_SEQ_ELEM(CvPoint, c, num_points - 1);
             }
         } while ((c = c->h_next));
     }
     // Fill unused pixels
+//     printf("Fill: %li\n", ocv_out.imageSize - ((char*)dst - ocv_out.imageData));
     memset((char*)dst, 0x0,  ocv_out.imageSize - ((char*)dst - ocv_out.imageData));
     
-    out_image->pts = mpi->pts;
+    mpi_out->pts = mpi_in->pts;
     
     cvReleaseMemStorage(&storage);
-    talloc_free(mpi);
-    talloc_free(work_img);
-    return out_image;
+    talloc_free(mpi_in);
+    talloc_free(mpi_work);
+    return mpi_out;
 }
+
+static vector_t* add_point(vector_t* dst, IplImage* src_image , unsigned long length, CvPoint* point, unsigned int z){
+    vector_t v;
+    v.z = 0; //z;
+    if (point){
+        v.x = (point->x * 0xFF / src_image->width); //Scale to full "color" depth
+        v.y = 0xFF - (point->y * 0xFF / src_image->height);
+    } else {
+        v.x = 0;
+        v.y = 0xFF;
+    }
+    
+    for (unsigned long j = 0; j < length; j++){
+        dst->pattern = v.pattern;
+        dst++;
+    }
+    return dst;
+}
+
+/**
+ * Calculate the (unscaled) scanout time to move the beam to the begin of the given countour from the current starting point.
+ */
+static unsigned long calculate_move_time(CvSeq* contour, CvPoint* current_point, double move_speed){
+    if (move_speed){
+        double move_distance;
+        
+        //Beam move time
+        CvPoint* first_point = CV_GET_SEQ_ELEM(CvPoint, contour, 0);
+        
+        if (current_point){ //Move from current beam point
+            move_distance = sqrt((current_point->x - first_point->x)*(current_point->x - first_point->x) + (current_point->y - first_point->y)*(current_point->y - first_point->y));
+        } else { //Move from (0,0) (h/vblank)
+            move_distance = sqrt((first_point->x)*(first_point->x) + (first_point->y)*(first_point->y));
+        }
+        return move_distance * move_speed;
+    } else {
+        return 0;
+    }
+}
+
+/**
+ * Calculate the (unscaled) scanout time to draw the countour from current starting point.
+ */
+static unsigned long calculate_contour_time(IplImage* src_image, CvSeq* contour, CvPoint* current_point, double move_speed){
+    unsigned long contour_time = calculate_move_time(contour, current_point, move_speed);
+    
+    //Count Contour points
+    for (int i = 0; i < contour->total; i++){
+        CvPoint* point = CV_GET_SEQ_ELEM(CvPoint, contour, i);
+        //Draw length (^= draw time) proportional to brightness
+        contour_time += (uint8_t)src_image->imageData[point->x + point->y * src_image->widthStep];
+    }
+    return contour_time;
+}
+
+
+
+//-------------------------------- MPV Functions -------------------------------
 
 static int query_format(struct vf_instance *vf, unsigned int fmt)
 {
@@ -191,9 +306,11 @@ static int vf_open(vf_instance_t *vf){
 
 #define OPT_BASE_STRUCT struct vf_priv_s
 static const m_option_t vf_opts_fields[] = {
-    OPT_INT("width",  cfg_width,  0, .min=1),
-    OPT_INT("height", cfg_height, 0, .min=1),
-    OPT_DOUBLE("min_length", cfg_min_length, 0, .min = 0),
+    OPT_INT(   "width",      cfg_width,       0, .min=1),
+    OPT_INT(   "height",     cfg_height,      0, .min=1),
+    OPT_DOUBLE("move",       cfg_move_scale,  0, .min=0, .max=1),
+    OPT_DOUBLE("blank",      cfg_blank_scale, 0, .min=0, .max=1),
+    OPT_DOUBLE("min_length", cfg_min_length,  0, .min = 0),
     {0}
 };
 
