@@ -49,6 +49,7 @@ static struct vf_priv_s {
     double cfg_blank_scale;
     double cfg_min_length;
     int cfg_sort;
+    int cfg_dither;
 } const vf_priv_dflt = {
     800, 600,
     0,
@@ -70,7 +71,7 @@ typedef union vector{
 //static unsigned long jump_to(vector_t** path, IplImage* ocv_in, unsigned long total_time , struct vf_priv_s* config, CvPoint* location);
 static unsigned long calculate_move_time(CvSeq* contour, CvPoint* current_point, double move_speed);
 static unsigned long calculate_contour_time(IplImage* image, CvSeq* contour, CvPoint* current_point, double move_speed);
-static vector_t* add_point(vector_t* p, IplImage* image , unsigned long length, CvPoint* point, unsigned int z);
+static vector_t* add_point(struct vf_priv_s* priv, vector_t* p, IplImage* image , unsigned long length, CvPoint* point, unsigned int z);
 
 static void mp_to_ocv_image(IplImage* out, struct mp_image* in)
 {
@@ -180,8 +181,8 @@ static struct mp_image *filter(struct vf_instance *vf, struct mp_image *mpi_in)
                     unsigned long move_points = calculate_move_time(c, last_point, priv->cfg_move_scale) * scale;
                     unsigned long on_points   = move_points * priv->cfg_blank_scale;
                     unsigned long off_points  = move_points - on_points;
-                    dst = add_point(dst, &ocv_in, off_points, first_point, 0x00);
-                    dst = add_point(dst, &ocv_in, on_points,  first_point, 0xFF);
+                    dst = add_point(priv, dst, &ocv_in, off_points, first_point, 0x00);
+                    dst = add_point(priv, dst, &ocv_in, on_points,  first_point, 0xFF);
                 }
                 
                 for (int i = 0; i < num_points; i++){
@@ -192,7 +193,7 @@ static struct mp_image *filter(struct vf_instance *vf, struct mp_image *mpi_in)
                     int iscale = pscale + remain;
                     remain += pscale - iscale;
 
-                    dst = add_point(dst, &ocv_in, iscale,  point, 0xFF);
+                    dst = add_point(priv, dst, &ocv_in, iscale,  point, 0xFF);
                 }
                 last_point = CV_GET_SEQ_ELEM(CvPoint, c, num_points - 1);
             }
@@ -210,20 +211,47 @@ static struct mp_image *filter(struct vf_instance *vf, struct mp_image *mpi_in)
     return mpi_out;
 }
 
-static vector_t* add_point(vector_t* dst, IplImage* src_image , unsigned long length, CvPoint* point, unsigned int z){
-    vector_t v;
-    v.z = 0; //z;
-    if (point){
-        v.x = (point->x * 0xFF / src_image->width); //Scale to full "color" depth
-        v.y = 0xFF - (point->y * 0xFF / src_image->height);
+static vector_t* add_point(struct vf_priv_s* priv, vector_t* dst, IplImage* src_image , unsigned long length, CvPoint* point, unsigned int z){
+    if (priv->cfg_dither){
+        const unsigned int width = 512;
+        const unsigned int height = 512;
+        
+        unsigned int x;
+        unsigned int y;
+        
+        if (point){
+            x = (point->x * width / src_image->width); //Scale to full "color" depth
+            y = (point->y * height / src_image->height);
+        } else {
+            x = 0;
+            y = 0;
+        }
+        
+        for (unsigned long j = 0; j < length; j++){
+            vector_t v = {.x = x/2, .y = y/2, .z = z};
+            
+            if ((x & 1) && (j & 1) && (x < 512)) v.x++;
+            if ((y & 1) && (j & 1) && (y < 512)) v.y++;
+            v.y = 256 - v.y;
+            
+            dst->pattern = v.pattern;
+            dst++;
+        }
     } else {
-        v.x = 0;
-        v.y = 0xFF;
-    }
-    
-    for (unsigned long j = 0; j < length; j++){
-        dst->pattern = v.pattern;
-        dst++;
+        vector_t v;
+        v.z = z;
+        if (point){
+            v.x = (point->x * 256 / src_image->width); //Scale to full "color" depth
+            v.y = 255 - (point->y * 256 / src_image->height);
+        } else {
+            v.x = 0;
+            v.y = 255;
+        }
+        
+        for (unsigned long j = 0; j < length; j++){
+            dst->pattern = v.pattern;
+            dst++;
+        }
     }
     return dst;
 }
@@ -311,6 +339,7 @@ static const m_option_t vf_opts_fields[] = {
     OPT_DOUBLE("move",       cfg_move_scale,  0, .min=0, .max=1),
     OPT_DOUBLE("blank",      cfg_blank_scale, 0, .min=0, .max=1),
     OPT_DOUBLE("min_length", cfg_min_length,  0, .min = 0),
+    OPT_INT(   "dither",     cfg_dither,      0, .min = 0, .max=1, OPTDEF_INT(1)),
     {0}
 };
 
