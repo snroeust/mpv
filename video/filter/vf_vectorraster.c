@@ -46,7 +46,7 @@ typedef union vector{
     uint32_t pattern;
 } vector_t;
 
-static const unsigned long scan_width   = 256;
+static const unsigned long scan_width   = 512;
 static const unsigned long scan_height  = 256;
 
 #define BRIGHTNESS2LENGTH(x) ((x+1)*(x+1)*(x+1)) //Increased
@@ -85,14 +85,14 @@ static struct mp_image *filter(struct vf_instance *vf, struct mp_image *mpi){
                 if (sx == 0 || (sx == (scan_width-1))) brightness = 0xF0; //Ensure leftmost pixel is drawn, to force the beam to scan the entire line and don't start in the middle
                 unsigned long length = BRIGHTNESS2LENGTH(brightness) * max_length / total_length;
                 
-                vector_t v = {{sx,y,0xFF}};
-                
+                //Temporal dithering 50%/50%
+                vector_t v[2] = {{{sx/2,y,0xFF}}, {{((sx & 1) == 0) || (sx == (scan_width -1)) ? sx/2 : sx/2+1,y,0xFF}}};
                 for (long i = 0; i < length; i++){
                     if ((void*)dst > (void*)(out_image->planes[0] + (out_stepwidth * out_image->h))){
                         printf("overflow im\n");
                         break;
                     }
-                    *dst = v;
+                    *dst = v[(((unsigned long)((uint8_t*)dst-out_image->planes[0]))/(sizeof(void*))) &1];
                     dst++;
                 }
             }
