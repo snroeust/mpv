@@ -28,7 +28,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-
+#include <math.h>
 #include "config.h"
 #include "common/msg.h"
 #include "options/options.h"
@@ -150,7 +150,6 @@ static struct mp_image *filter(struct vf_instance *vf, struct mp_image *mpi_in)
 //     }
     
     unsigned long total_time = 0;
-
     
     CvPoint* last_point = 0;
 
@@ -161,7 +160,7 @@ static struct mp_image *filter(struct vf_instance *vf, struct mp_image *mpi_in)
             int num_points = c->total;
             if (num_points >= priv->cfg_min_length){
                 total_time += calculate_contour_time(&ocv_in,c, last_point, priv->cfg_move_scale);
-                last_point =  CV_GET_SEQ_ELEM(CvPoint, c, num_points - 1);
+                last_point =  CV_GET_SEQ_ELEM(CvPoint, c, -1);
             }
         } while ((c = c->h_next));
     }
@@ -195,7 +194,7 @@ static struct mp_image *filter(struct vf_instance *vf, struct mp_image *mpi_in)
 
                     dst = add_point(priv, dst, &ocv_in, iscale,  point, 0xFF);
                 }
-                last_point = CV_GET_SEQ_ELEM(CvPoint, c, num_points - 1);
+                last_point = CV_GET_SEQ_ELEM(CvPoint, c, -1);
             }
         } while ((c = c->h_next));
     }
