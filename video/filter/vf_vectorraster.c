@@ -74,7 +74,7 @@ static struct mp_image *filter(struct vf_instance *vf, struct mp_image *mpi){
             total_length += BRIGHTNESS2LENGTH(brightness);
         }
     }
-        
+    
     if (total_length > 0){
         
         for (unsigned long y = 0; y < scan_height; y++){

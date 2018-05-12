@@ -215,6 +215,8 @@ static vector_t* add_point(struct vf_priv_s* priv, vector_t* dst, IplImage* src_
         const unsigned int width = 512;
         const unsigned int height = 512;
         
+        z  = ~z;
+        
         unsigned int x;
         unsigned int y;
         

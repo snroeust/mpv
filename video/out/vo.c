@@ -66,6 +66,12 @@ extern const struct vo_driver video_out_vaapi;
 extern const struct vo_driver video_out_wayland;
 extern const struct vo_driver video_out_rpi;
 extern const struct vo_driver video_out_tkkr;
+extern const struct vo_driver video_out_pixelflut;
+extern const struct vo_driver video_out_pixelflut2;
+extern const struct vo_driver video_out_pixelflutudp;
+extern const struct vo_driver video_out_pixelfluteth0;
+extern const struct vo_driver video_out_pixelflutentropia;
+
 
 const struct vo_driver *const video_out_drivers[] =
 {
@@ -114,6 +120,11 @@ const struct vo_driver *const video_out_drivers[] =
     &video_out_opengl_cb,
 #endif
     &video_out_tkkr,
+    &video_out_pixelflut,
+    &video_out_pixelflut2,
+    &video_out_pixelflutudp,
+    &video_out_pixelfluteth0,
+    &video_out_pixelflutentropia,
     NULL
 };
 
