@@ -5,16 +5,20 @@
 from __future__ import print_function
 import os, sys, stat, hashlib, subprocess
 
-WAFRELEASE = "waf-1.8.12"
+WAFRELEASE = "waf-2.0.9"
 WAFURLS    = ["https://waf.io/" + WAFRELEASE,
               "http://www.freehackers.org/~tnagy/release/" + WAFRELEASE]
-SHA256HASH = "01bf2beab2106d1558800c8709bc2c8e496d3da4a2ca343fe091f22fca60c98b"
+SHA256HASH = "2a8e0816f023995e557f79ea8940d322bec18f286917c8f9a6fa2dc3875dfa48"
 
 if os.path.exists("waf"):
     wafver = subprocess.check_output([sys.executable, './waf', '--version']).decode()
     if WAFRELEASE.split('-')[1] == wafver.split(' ')[1]:
         print("Found 'waf', skipping download.")
         sys.exit(0)
+
+if "--no-download" in sys.argv[1:]:
+    print("Did not find {} and no download was requested.".format(WAFRELEASE))
+    sys.exit(1)
 
 try:
     from urllib.request import urlopen, URLError

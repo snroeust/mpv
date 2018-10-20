@@ -5,18 +5,18 @@
  *
  * This file is part of mpv.
  *
- * mpv is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2 of the License, or
- * (at your option) any later version.
+ * mpv is free software; you can redistribute it and/or
+ * modify it under the terms of the GNU Lesser General Public
+ * License as published by the Free Software Foundation; either
+ * version 2.1 of the License, or (at your option) any later version.
  *
  * mpv is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
+ * GNU Lesser General Public License for more details.
  *
- * You should have received a copy of the GNU General Public License along
- * with mpv.  If not, see <http://www.gnu.org/licenses/>.
+ * You should have received a copy of the GNU Lesser General Public
+ * License along with mpv.  If not, see <http://www.gnu.org/licenses/>.
  */
 
 #include <stdlib.h>
@@ -36,19 +36,15 @@
 #include <libavcodec/avcodec.h>
 #include <libavformat/avformat.h>
 #include <libswscale/swscale.h>
+#include <libavfilter/avfilter.h>
 
 #if HAVE_LIBAVDEVICE
 #include <libavdevice/avdevice.h>
 #endif
 
-#if HAVE_LIBAVFILTER
-#include <libavfilter/avfilter.h>
-#endif
-
-#if HAVE_LIBAVRESAMPLE
+#if HAVE_LIBAV
 #include <libavresample/avresample.h>
-#endif
-#if HAVE_LIBSWRESAMPLE
+#else
 #include <libswresample/swresample.h>
 #endif
 
@@ -68,9 +64,9 @@ static bool log_print_prefix = true;
 static int av_log_level_to_mp_level(int av_level)
 {
     if (av_level > AV_LOG_VERBOSE)
-        return MSGL_DEBUG;
+        return MSGL_TRACE;
     if (av_level > AV_LOG_INFO)
-        return MSGL_V;
+        return MSGL_DEBUG;
     if (av_level > AV_LOG_WARNING)
         return MSGL_V;
     if (av_level > AV_LOG_ERROR)
@@ -97,10 +93,10 @@ static struct mp_log *get_av_log(void *ptr)
         AVCodecContext *s = ptr;
         if (s->codec) {
             if (s->codec->type == AVMEDIA_TYPE_AUDIO) {
-                if (s->codec->decode)
+                if (av_codec_is_decoder(s->codec))
                     return log_decaudio;
             } else if (s->codec->type == AVMEDIA_TYPE_VIDEO) {
-                if (s->codec->decode)
+                if (av_codec_is_decoder(s->codec))
                     return log_decvideo;
             }
         }
@@ -134,12 +130,17 @@ static void mp_msg_av_log_callback(void *ptr, int level, const char *fmt,
     struct mp_log *log = get_av_log(ptr);
 
     if (mp_msg_test(log, mp_level)) {
+        char buffer[4096] = "";
+        int pos = 0;
         const char *prefix = avc ? avc->item_name(ptr) : NULL;
         if (log_print_prefix && prefix)
-            mp_msg(log, mp_level, "%s: ", prefix);
+            pos = snprintf(buffer, sizeof(buffer), "%s: ", prefix);
         log_print_prefix = fmt[strlen(fmt) - 1] == '\n';
 
-        mp_msg_va(log, mp_level, fmt, vl);
+        pos = MPMIN(MPMAX(pos, 0), sizeof(buffer));
+        vsnprintf(buffer + pos, sizeof(buffer) - pos, fmt, vl);
+
+        mp_msg(log, mp_level, "%s", buffer);
     }
 
     pthread_mutex_unlock(&log_lock);
@@ -158,13 +159,8 @@ void init_libav(struct mpv_global *global)
     }
     pthread_mutex_unlock(&log_lock);
 
-    avcodec_register_all();
-    av_register_all();
     avformat_network_init();
 
-#if HAVE_LIBAVFILTER
-    avfilter_register_all();
-#endif
 #if HAVE_LIBAVDEVICE
     avdevice_register_all();
 #endif
@@ -189,37 +185,37 @@ struct lib {
     unsigned runv;
 };
 
-void print_libav_versions(struct mp_log *log, int v)
+bool print_libav_versions(struct mp_log *log, int v)
 {
     const struct lib libs[] = {
         {"libavutil",     LIBAVUTIL_VERSION_INT,     avutil_version()},
         {"libavcodec",    LIBAVCODEC_VERSION_INT,    avcodec_version()},
         {"libavformat",   LIBAVFORMAT_VERSION_INT,   avformat_version()},
         {"libswscale",    LIBSWSCALE_VERSION_INT,    swscale_version()},
-#if HAVE_LIBAVFILTER
         {"libavfilter",   LIBAVFILTER_VERSION_INT,   avfilter_version()},
-#endif
-#if HAVE_LIBAVRESAMPLE
+#if HAVE_LIBAV
         {"libavresample", LIBAVRESAMPLE_VERSION_INT, avresample_version()},
-#endif
-#if HAVE_LIBSWRESAMPLE
+#else
         {"libswresample", LIBSWRESAMPLE_VERSION_INT, swresample_version()},
 #endif
     };
 
     mp_msg(log, v, "%s library versions:\n", LIB_PREFIX);
 
+    bool mismatch = false;
     for (int n = 0; n < MP_ARRAY_SIZE(libs); n++) {
         const struct lib *l = &libs[n];
         mp_msg(log, v, "   %-15s %d.%d.%d", l->name, V(l->buildv));
-        if (l->buildv != l->runv)
+        if (l->buildv != l->runv) {
             mp_msg(log, v, " (runtime %d.%d.%d)", V(l->runv));
+            mismatch = true;
+        }
         mp_msg(log, v, "\n");
     }
 
-#if HAVE_AV_VERSION_INFO
     mp_msg(log, v, "%s version: %s\n", LIB_PREFIX, av_version_info());
-#endif
+
+    return !mismatch;
 }
 
 #undef V

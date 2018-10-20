@@ -1,18 +1,18 @@
 /*
  * This file is part of mpv.
  *
- * mpv is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2 of the License, or
- * (at your option) any later version.
+ * mpv is free software; you can redistribute it and/or
+ * modify it under the terms of the GNU Lesser General Public
+ * License as published by the Free Software Foundation; either
+ * version 2.1 of the License, or (at your option) any later version.
  *
  * mpv is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
+ * GNU Lesser General Public License for more details.
  *
- * You should have received a copy of the GNU General Public License along
- * with mpv.  If not, see <http://www.gnu.org/licenses/>.
+ * You should have received a copy of the GNU Lesser General Public
+ * License along with mpv.  If not, see <http://www.gnu.org/licenses/>.
  */
 
 #include <stdlib.h>
@@ -20,7 +20,7 @@
 #include <string.h>
 #include <inttypes.h>
 
-#include "talloc.h"
+#include "mpv_talloc.h"
 
 #include "misc/bstr.h"
 #include "common/common.h"
@@ -70,12 +70,12 @@ static enum cue_command read_cmd(struct bstr *data, struct bstr *out_params)
         return CUE_EMPTY;
     for (int n = 0; cue_command_strings[n].command != -1; n++) {
         struct bstr name = bstr0(cue_command_strings[n].text);
-        if (bstr_startswith(line, name)) {
+        if (bstr_case_startswith(line, name)) {
             struct bstr rest = bstr_cut(line, name.len);
             if (rest.len && !strchr(WHITESPACE, rest.start[0]))
                 continue;
             if (out_params)
-                *out_params = rest;
+                *out_params = bstr_lstrip(rest);
             return cue_command_strings[n].command;
         }
     }
@@ -103,6 +103,14 @@ static char *read_quoted(void *talloc_ctx, struct bstr *data)
     struct bstr res = bstr_splice(*data, 0, end);
     *data = bstr_cut(*data, end + 1);
     return bstrto0(talloc_ctx, res);
+}
+
+static struct bstr strip_quotes(struct bstr data)
+{
+    bstr s = data;
+    if (bstr_eatstart0(&s, "\"") && bstr_eatend0(&s, "\""))
+        return s;
+    return data;
 }
 
 // Read a 2 digit unsigned decimal integer.
@@ -193,7 +201,7 @@ struct cue_file *mp_parse_cue(struct bstr data)
                 [CUE_PERFORMER] = "performer",
             };
             struct mp_tags *tags = cur_track ? cur_track->tags : f->tags;
-            mp_tags_set_bstr(tags, bstr0(metanames[cmd]), param);
+            mp_tags_set_bstr(tags, bstr0(metanames[cmd]), strip_quotes(param));
             break;
         }
         case CUE_INDEX: {
@@ -217,4 +225,19 @@ struct cue_file *mp_parse_cue(struct bstr data)
     }
 
     return f;
+}
+
+int mp_check_embedded_cue(struct cue_file *f)
+{
+    char *fn0 = f->tracks[0].filename;
+    for (int n = 1; n < f->num_tracks; n++) {
+        char *fn = f->tracks[n].filename;
+        // both filenames have the same address (including NULL)
+        if (fn0 == fn)
+            continue;
+        // only one filename is NULL, or the strings don't match
+        if (!fn0 || !fn || strcmp(fn0, fn) != 0)
+            return -1;
+    }
+    return 0;
 }

@@ -1,18 +1,18 @@
 /*
  * This file is part of mpv.
  *
- * mpv is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2 of the License, or
- * (at your option) any later version.
+ * mpv is free software; you can redistribute it and/or
+ * modify it under the terms of the GNU Lesser General Public
+ * License as published by the Free Software Foundation; either
+ * version 2.1 of the License, or (at your option) any later version.
  *
  * mpv is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
+ * GNU Lesser General Public License for more details.
  *
- * You should have received a copy of the GNU General Public License along
- * with mpv.  If not, see <http://www.gnu.org/licenses/>.
+ * You should have received a copy of the GNU Lesser General Public
+ * License along with mpv.  If not, see <http://www.gnu.org/licenses/>.
  */
 
 #include <CoreAudio/HostTime.h>
@@ -39,7 +39,6 @@ struct priv {
     AudioStreamID original_asbd_stream;
 
     int change_physical_format;
-    int exclusive;
 };
 
 static int64_t ca_get_hardware_latency(struct ao *ao) {
@@ -133,11 +132,6 @@ static bool reinit_device(struct ao *ao) {
     OSStatus err = ca_select_device(ao, ao->device, &p->device);
     CHECK_CA_ERROR("failed to select device");
 
-    char *uid;
-    err = CA_GET_STR(p->device, kAudioDevicePropertyDeviceUID, &uid);
-    CHECK_CA_ERROR("failed to get device UID");
-    ao->detected_device = talloc_steal(ao, uid);
-
     return true;
 
 coreaudio_error:
@@ -148,7 +142,7 @@ static int init(struct ao *ao)
 {
     struct priv *p = ao->priv;
 
-    if (!af_fmt_is_pcm(ao->format) || p->exclusive) {
+    if (!af_fmt_is_pcm(ao->format) || (ao->init_flags & AO_INIT_EXCLUSIVE)) {
         MP_VERBOSE(ao, "redirecting to coreaudio_exclusive\n");
         ao->redirect = "coreaudio_exclusive";
         return CONTROL_ERROR;
@@ -384,8 +378,8 @@ static int hotplug_init(struct ao *ao)
         err = AudioObjectAddPropertyListener(
             kAudioObjectSystemObject, &addr, hotplug_cb, (void *)ao);
         if (err != noErr) {
-            char *c1 = fourcc_repr(hotplug_properties[i]);
-            char *c2 = fourcc_repr(err);
+            char *c1 = mp_tag_str(hotplug_properties[i]);
+            char *c2 = mp_tag_str(err);
             MP_ERR(ao, "failed to set device listener %s (%s)", c1, c2);
             goto coreaudio_error;
         }
@@ -409,8 +403,8 @@ static void hotplug_uninit(struct ao *ao)
         err = AudioObjectRemovePropertyListener(
             kAudioObjectSystemObject, &addr, hotplug_cb, (void *)ao);
         if (err != noErr) {
-            char *c1 = fourcc_repr(hotplug_properties[i]);
-            char *c2 = fourcc_repr(err);
+            char *c1 = mp_tag_str(hotplug_properties[i]);
+            char *c2 = mp_tag_str(err);
             MP_ERR(ao, "failed to set device listener %s (%s)", c1, c2);
         }
     }
@@ -424,7 +418,7 @@ const struct ao_driver audio_out_coreaudio = {
     .uninit         = uninit,
     .init           = init,
     .control        = control,
-    .pause          = stop,
+    .reset          = stop,
     .resume         = start,
     .hotplug_init   = hotplug_init,
     .hotplug_uninit = hotplug_uninit,
@@ -432,7 +426,7 @@ const struct ao_driver audio_out_coreaudio = {
     .priv_size      = sizeof(struct priv),
     .options = (const struct m_option[]){
         OPT_FLAG("change-physical-format", change_physical_format, 0),
-        OPT_FLAG("exclusive", exclusive, 0),
         {0}
     },
+    .options_prefix = "coreaudio",
 };

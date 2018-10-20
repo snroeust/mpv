@@ -5,18 +5,18 @@
  *
  * This file is part of mpv.
  *
- * mpv is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2 of the License, or
- * (at your option) any later version.
+ * mpv is free software; you can redistribute it and/or
+ * modify it under the terms of the GNU Lesser General Public
+ * License as published by the Free Software Foundation; either
+ * version 2.1 of the License, or (at your option) any later version.
  *
  * mpv is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
+ * GNU Lesser General Public License for more details.
  *
- * You should have received a copy of the GNU General Public License along
- * with mpv.  If not, see <http://www.gnu.org/licenses/>.
+ * You should have received a copy of the GNU Lesser General Public
+ * License along with mpv.  If not, see <http://www.gnu.org/licenses/>.
  */
 
 #include "config.h"
@@ -27,7 +27,7 @@
 
 #include <libavutil/common.h>
 
-#include "talloc.h"
+#include "mpv_talloc.h"
 
 #include "options/m_option.h"
 #include "audio/format.h"
@@ -130,7 +130,6 @@ static int init(struct ao *ao)
         switch (ao->format) {
         case AF_FORMAT_U8:
         case AF_FORMAT_S16:
-        case AF_FORMAT_S24:
         case AF_FORMAT_S32:
         case AF_FORMAT_FLOAT:
              break;
@@ -152,8 +151,6 @@ static int init(struct ao *ao)
             priv->outputfilename,
             priv->waveheader ? "WAVE" : "RAW PCM", ao->samplerate,
             ao->channels.num, af_fmt_to_str(ao->format));
-    MP_INFO(ao, "Info: Faster dumping is achieved with --no-video\n");
-    MP_INFO(ao, "Info: To write WAVE files use --ao=pcm:waveheader (default).\n");
 
     priv->fp = fopen(priv->outputfilename, priv->append ? "ab" : "wb");
     if (!priv->fp) {
@@ -221,9 +218,10 @@ const struct ao_driver audio_out_pcm = {
     .priv_size = sizeof(struct priv),
     .priv_defaults = &(const struct priv) { .waveheader = 1 },
     .options = (const struct m_option[]) {
-        OPT_STRING("file", outputfilename, 0),
+        OPT_STRING("file", outputfilename, M_OPT_FILE),
         OPT_FLAG("waveheader", waveheader, 0),
         OPT_FLAG("append", append, 0),
         {0}
     },
+    .options_prefix = "ao-pcm",
 };

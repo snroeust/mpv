@@ -3,18 +3,18 @@
  *
  * This file is part of mpv.
  *
- * mpv is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2 of the License, or
- * (at your option) any later version.
+ * mpv is free software; you can redistribute it and/or
+ * modify it under the terms of the GNU Lesser General Public
+ * License as published by the Free Software Foundation; either
+ * version 2.1 of the License, or (at your option) any later version.
  *
  * mpv is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
+ * GNU Lesser General Public License for more details.
  *
- * You should have received a copy of the GNU General Public License along
- * with mpv.  If not, see <http://www.gnu.org/licenses/>.
+ * You should have received a copy of the GNU Lesser General Public
+ * License along with mpv.  If not, see <http://www.gnu.org/licenses/>.
  */
 
 /*
@@ -26,7 +26,7 @@
 #include <stdlib.h>
 #include <math.h>
 
-#include "talloc.h"
+#include "mpv_talloc.h"
 
 #include "config.h"
 #include "osdep/timer.h"
@@ -57,7 +57,8 @@ struct priv {
     // (This is not needed by the AO API, but many AOs behave this way.)
     int outburst;       // samples
 
-    char **channel_layouts;
+    struct m_channels channel_layouts;
+    int format;
 };
 
 static void drain(struct ao *ao)
@@ -88,18 +89,15 @@ static int init(struct ao *ao)
 {
     struct priv *priv = ao->priv;
 
+    if (priv->format)
+        ao->format = priv->format;
+
     ao->untimed = priv->untimed;
 
     struct mp_chmap_sel sel = {.tmp = ao};
-    if (priv->channel_layouts) {
-        for (int n = 0; priv->channel_layouts[n]; n++) {
-            struct mp_chmap map = {0};
-            if (!mp_chmap_from_str(&map, bstr0(priv->channel_layouts[n]))) {
-                MP_FATAL(ao, "Invalid channel map in option.\n");
-                return -1;
-            }
-            mp_chmap_sel_add_map(&sel, &map);
-        }
+    if (priv->channel_layouts.num_chmaps) {
+        for (int n = 0; n < priv->channel_layouts.num_chmaps; n++)
+            mp_chmap_sel_add_map(&sel, &priv->channel_layouts.chmaps[n]);
     } else {
         mp_chmap_sel_add_any(&sel);
     }
@@ -113,6 +111,8 @@ static int init(struct ao *ao)
     priv->buffersize = priv->outburst * bursts + priv->latency;
 
     priv->last_time = mp_time_sec();
+
+    ao->period_size = priv->outburst;
 
     return 0;
 }
@@ -244,7 +244,9 @@ const struct ao_driver audio_out_null = {
         OPT_FLOATRANGE("latency", latency_sec, 0, 0, 100),
         OPT_FLAG("broken-eof", broken_eof, 0),
         OPT_FLAG("broken-delay", broken_delay, 0),
-        OPT_STRINGLIST("channel-layouts", channel_layouts, 0),
+        OPT_CHANNELS("channel-layouts", channel_layouts, 0),
+        OPT_AUDIOFORMAT("format", format, 0),
         {0}
     },
+    .options_prefix = "ao-null",
 };

@@ -24,10 +24,15 @@
 #include <X11/Xlib.h>
 #include <X11/Xutil.h>
 
-#include "osdep/atomics.h"
+#include "osdep/atomic.h"
 #include "osdep/semaphore.h"
 
 #include "common/common.h"
+
+#include "config.h"
+#if !HAVE_GPL
+#error GPL only
+#endif
 
 struct vo;
 struct mp_log;
@@ -43,7 +48,10 @@ struct xrandr_display {
 
 struct vo_x11_state {
     struct mp_log *log;
+    struct input_ctx *input_ctx;
     Display *display;
+    int event_fd;
+    int wakeup_pipe[2];
     Window window;
     Window rootwin;
     Window parent;  // embedded in this foreign window
@@ -51,10 +59,13 @@ struct vo_x11_state {
     int display_is_local;
     int ws_width;
     int ws_height;
+    int dpi_scale;
     struct mp_rect screenrc;
+    char *window_title;
 
     struct xrandr_display displays[MAX_DISPLAYS];
     int num_displays;
+    int current_icc_screen;
 
     int xrandr_event;
 
@@ -123,13 +134,17 @@ struct vo_x11_state {
 
 int vo_x11_init(struct vo *vo);
 void vo_x11_uninit(struct vo *vo);
-int vo_x11_check_events(struct vo *vo);
+void vo_x11_check_events(struct vo *vo);
 bool vo_x11_screen_is_composited(struct vo *vo);
 bool vo_x11_create_vo_window(struct vo *vo, XVisualInfo *vis,
                              const char *classname);
 void vo_x11_config_vo_window(struct vo *vo);
 int vo_x11_control(struct vo *vo, int *events, int request, void *arg);
+void vo_x11_wakeup(struct vo *vo);
+void vo_x11_wait_events(struct vo *vo, int64_t until_time_us);
 
 void vo_x11_silence_xlib(int dir);
+
+bool vo_x11_is_rgba_visual(XVisualInfo *v);
 
 #endif /* MPLAYER_X11_COMMON_H */

@@ -1,25 +1,20 @@
 /*
- * Get path to config dir/file.
- *
- * Return Values:
- *   Returns the pointer to the ALLOCATED buffer containing the
- *   zero terminated path string. This buffer has to be FREED
- *   by the caller.
- *
  * This file is part of mpv.
  *
- * mpv is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2 of the License, or
- * (at your option) any later version.
+ * Get path to config dir/file.
+ *
+ * mpv is free software; you can redistribute it and/or
+ * modify it under the terms of the GNU Lesser General Public
+ * License as published by the Free Software Foundation; either
+ * version 2.1 of the License, or (at your option) any later version.
  *
  * mpv is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
+ * GNU Lesser General Public License for more details.
  *
- * You should have received a copy of the GNU General Public License along
- * with mpv.  If not, see <http://www.gnu.org/licenses/>.
+ * You should have received a copy of the GNU Lesser General Public
+ * License along with mpv.  If not, see <http://www.gnu.org/licenses/>.
  */
 
 #include <assert.h>
@@ -39,7 +34,7 @@
 #include "common/msg.h"
 #include "options/options.h"
 #include "options/path.h"
-#include "talloc.h"
+#include "mpv_talloc.h"
 #include "osdep/io.h"
 #include "osdep/path.h"
 
@@ -51,7 +46,9 @@ static const mp_get_platform_path_cb path_resolvers[] = {
 #if !defined(_WIN32) || defined(__CYGWIN__)
     mp_get_platform_path_unix,
 #endif
-#if defined(_WIN32)
+#if HAVE_UWP
+    mp_get_platform_path_uwp,
+#elif defined(_WIN32)
     mp_get_platform_path_win,
 #endif
 };
@@ -101,7 +98,7 @@ char *mp_find_user_config_file(void *talloc_ctx, struct mpv_global *global,
     if (res)
         res = mp_path_join(talloc_ctx, res, filename);
     talloc_free(tmp);
-    MP_VERBOSE(global, "config path: '%s' -> '%s'\n", filename, res ? res : "-");
+    MP_DBG(global, "config path: '%s' -> '%s'\n", filename, res ? res : "-");
     return res;
 }
 
@@ -122,12 +119,12 @@ static char **mp_find_all_config_files_limited(void *talloc_ctx,
 
             char *file = mp_path_join_bstr(ret, bstr0(dir), fn);
             if (mp_path_exists(file)) {
-                MP_VERBOSE(global, "config path: '%.*s' -> '%s'\n",
-                           BSTR_P(fn), file);
+                MP_DBG(global, "config path: '%.*s' -> '%s'\n",
+                        BSTR_P(fn), file);
                 MP_TARRAY_APPEND(NULL, ret, num_ret, file);
             } else {
-                MP_VERBOSE(global, "config path: '%.*s' -/-> '%s'\n",
-                           BSTR_P(fn), file);
+                MP_DBG(global, "config path: '%.*s' -/-> '%s'\n",
+                        BSTR_P(fn), file);
             }
         }
     }
@@ -169,8 +166,17 @@ char *mp_get_user_path(void *talloc_ctx, struct mpv_global *global,
             const char *rest0 = rest.start; // ok in this case
             if (bstr_equals0(prefix, "~")) {
                 res = mp_find_config_file(talloc_ctx, global, rest0);
+                if (!res) {
+                    void *tmp = talloc_new(NULL);
+                    const char *p = mp_get_platform_path(tmp, global, "home");
+                    res = mp_path_join_bstr(talloc_ctx, bstr0(p), rest);
+                    talloc_free(tmp);
+                }
             } else if (bstr_equals0(prefix, "")) {
-                res = mp_path_join_bstr(talloc_ctx, bstr0(getenv("HOME")), rest);
+                char *home = getenv("HOME");
+                if (!home)
+                    home = getenv("USERPROFILE");
+                res = mp_path_join_bstr(talloc_ctx, bstr0(home), rest);
             } else if (bstr_eatstart0(&prefix, "~")) {
                 void *tmp = talloc_new(NULL);
                 char type[80];
@@ -183,7 +189,7 @@ char *mp_get_user_path(void *talloc_ctx, struct mpv_global *global,
     }
     if (!res)
         res = talloc_strdup(talloc_ctx, path);
-    MP_VERBOSE(global, "user path: '%s' -> '%s'\n", path, res);
+    MP_DBG(global, "user path: '%s' -> '%s'\n", path, res);
     return res;
 }
 
@@ -213,6 +219,21 @@ struct bstr mp_dirname(const char *path)
     return ret;
 }
 
+
+#if HAVE_DOS_PATHS
+static const char mp_path_separators[] = "\\/";
+#else
+static const char mp_path_separators[] = "/";
+#endif
+
+// Mutates path and removes a trailing '/' (or '\' on Windows)
+void mp_path_strip_trailing_separator(char *path)
+{
+    size_t len = strlen(path);
+    if (len > 0 && strchr(mp_path_separators, path[len - 1]))
+        path[len - 1] = '\0';
+}
+
 char *mp_splitext(const char *path, bstr *root)
 {
     assert(path);
@@ -226,17 +247,19 @@ char *mp_splitext(const char *path, bstr *root)
 
 char *mp_path_join_bstr(void *talloc_ctx, struct bstr p1, struct bstr p2)
 {
+    bool test;
     if (p1.len == 0)
         return bstrdup0(talloc_ctx, p2);
     if (p2.len == 0)
         return bstrdup0(talloc_ctx, p1);
 
 #if HAVE_DOS_PATHS
-    if ((p2.len >= 2 && p2.start[1] == ':')
-        || p2.start[0] == '\\' || p2.start[0] == '/')
+    test = (p2.len >= 2 && p2.start[1] == ':')
+        || p2.start[0] == '\\' || p2.start[0] == '/';
 #else
-    if (p2.start[0] == '/')
+    test = p2.start[0] == '/';
 #endif
+    if (test)
         return bstrdup0(talloc_ctx, p2);   // absolute path
 
     bool have_separator;

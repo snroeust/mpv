@@ -67,10 +67,8 @@ struct mp_vdpau_mixer *mp_vdpau_mixer_create(struct mp_vdpau_ctx *vdp_ctx,
         .ctx = vdp_ctx,
         .log = log,
         .video_mixer = VDP_INVALID_HANDLE,
-        .video_eq = {
-            .capabilities = MP_CSP_EQ_CAPS_COLORMATRIX,
-        },
     };
+    mp_vdpau_handle_preemption(mixer->ctx, &mixer->preemption_counter);
     return mixer;
 }
 
@@ -200,8 +198,9 @@ static int create_vdp_mixer(struct mp_vdpau_mixer *mixer,
 
     struct mp_csp_params cparams = MP_CSP_PARAMS_DEFAULTS;
     mp_csp_set_image_params(&cparams, &mixer->image_params);
-    mp_csp_copy_equalizer_values(&cparams, &mixer->video_eq);
-    mp_get_yuv2rgb_coeffs(&cparams, &yuv2rgb);
+    if (mixer->video_eq)
+        mp_csp_equalizer_state_get(mixer->video_eq, &cparams);
+    mp_get_csp_matrix(&cparams, &yuv2rgb);
 
     for (int r = 0; r < 3; r++) {
         for (int c = 0; c < 3; c++)
@@ -227,6 +226,13 @@ int mp_vdpau_mixer_render(struct mp_vdpau_mixer *mixer,
 
     if (!video_rect)
         video_rect = &fallback_rect;
+
+    int pe = mp_vdpau_handle_preemption(mixer->ctx, &mixer->preemption_counter);
+    if (pe < 1) {
+        mixer->video_mixer = VDP_INVALID_HANDLE;
+        if (pe < 0)
+            return -1;
+    }
 
     if (video->imgfmt == IMGFMT_VDPAU_OUTPUT) {
         VdpOutputSurface surface = (uintptr_t)video->planes[3];
@@ -258,6 +264,9 @@ int mp_vdpau_mixer_render(struct mp_vdpau_mixer *mixer,
         opts = &frame->opts;
 
     if (mixer->video_mixer == VDP_INVALID_HANDLE)
+        mixer->initialized = false;
+
+    if (mixer->video_eq && mp_csp_equalizer_state_changed(mixer->video_eq))
         mixer->initialized = false;
 
     VdpChromaType s_chroma_type;

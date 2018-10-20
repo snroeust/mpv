@@ -5,18 +5,18 @@
  *
  * This file is part of mpv.
  *
- * mpv is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2 of the License, or
- * (at your option) any later version.
+ * mpv is free software; you can redistribute it and/or
+ * modify it under the terms of the GNU Lesser General Public
+ * License as published by the Free Software Foundation; either
+ * version 2.1 of the License, or (at your option) any later version.
  *
  * mpv is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
+ * GNU Lesser General Public License for more details.
  *
- * You should have received a copy of the GNU General Public License along
- * with mpv.  If not, see <http://www.gnu.org/licenses/>.
+ * You should have received a copy of the GNU Lesser General Public
+ * License along with mpv.  If not, see <http://www.gnu.org/licenses/>.
  */
 
 #include "config.h"
@@ -26,7 +26,7 @@
 #include <unistd.h>
 #include <rsound.h>
 
-#include "talloc.h"
+#include "mpv_talloc.h"
 
 #include "options/m_option.h"
 #include "osdep/timer.h"
@@ -36,8 +36,6 @@
 
 struct priv {
     rsound_t *rd;
-    char *host;
-    char *port;
 };
 
 static int set_format(struct ao *ao)
@@ -66,11 +64,8 @@ static int init(struct ao *ao)
     if (rsd_init(&priv->rd) < 0)
         return -1;
 
-    if (priv->host && priv->host[0])
-        rsd_set_param(priv->rd, RSD_HOST, priv->host);
-
-    if (priv->port && priv->port[0])
-        rsd_set_param(priv->rd, RSD_PORT, priv->port);
+    if (ao->device)
+        rsd_set_param(priv->rd, RSD_HOST, ao->device);
 
     // Actual channel layout unknown.
     struct mp_chmap_sel sel = {0};
@@ -155,10 +150,5 @@ const struct ao_driver audio_out_rsound = {
     .pause     = audio_pause,
     .resume    = audio_resume,
     .priv_size = sizeof(struct priv),
-    .options   = (const struct m_option[]) {
-        OPT_STRING("host", host, 0),
-        OPT_STRING("port", port, 0),
-        {0}
-    },
 };
 

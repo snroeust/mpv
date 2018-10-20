@@ -3,6 +3,7 @@
 
 #include <stdbool.h>
 
+#include "csputils.h"
 #include "mp_image.h"
 #include "vdpau.h"
 
@@ -30,6 +31,7 @@ struct mp_vdpau_mixer_frame {
 struct mp_vdpau_mixer {
     struct mp_log *log;
     struct mp_vdpau_ctx *ctx;
+    uint64_t preemption_counter;
     bool initialized;
 
     struct mp_image_params image_params;
@@ -38,8 +40,7 @@ struct mp_vdpau_mixer {
     VdpChromaType current_chroma_type;
     int current_w, current_h;
 
-    // set initialized=false to force reinit when changed
-    struct mp_csp_equalizer video_eq;
+    struct mp_csp_equalizer_state *video_eq;
 
     VdpVideoMixer video_mixer;
 };

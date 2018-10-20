@@ -1,18 +1,18 @@
 /*
  * This file is part of mpv.
  *
- * mpv is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2 of the License, or
- * (at your option) any later version.
+ * mpv is free software; you can redistribute it and/or
+ * modify it under the terms of the GNU Lesser General Public
+ * License as published by the Free Software Foundation; either
+ * version 2.1 of the License, or (at your option) any later version.
  *
  * mpv is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
+ * GNU Lesser General Public License for more details.
  *
- * You should have received a copy of the GNU General Public License along
- * with mpv.  If not, see <http://www.gnu.org/licenses/>.
+ * You should have received a copy of the GNU Lesser General Public
+ * License along with mpv.  If not, see <http://www.gnu.org/licenses/>.
  */
 
 #include <stdlib.h>
@@ -95,7 +95,6 @@ static const char *const std_layout_names[][2] = {
     {"7.1(wide-side)",  "fl-fr-fc-lfe-flc-frc-sl-sr"},
     {"7.1(rear)",       "fl-fr-fc-lfe-bl-br-sdl-sdr"}, // not in lavc
     {"octagonal",       "fl-fr-fc-bl-br-bc-sl-sr"},
-    {"downmix",         "dl-dr"},
     {"auto",            ""}, // not in lavc
     {0}
 };
@@ -227,44 +226,6 @@ void mp_chmap_set_unknown(struct mp_chmap *dst, int num_channels)
         dst->num = num_channels;
         for (int n = 0; n < dst->num; n++)
             dst->speaker[n] = MP_SPEAKER_ID_NA;
-    }
-}
-
-// Return channel index of the given speaker, or -1.
-static int mp_chmap_find_speaker(const struct mp_chmap *map, int speaker)
-{
-    for (int n = 0; n < map->num; n++) {
-        if (map->speaker[n] == speaker)
-            return n;
-    }
-    return -1;
-}
-
-static void mp_chmap_remove_speaker(struct mp_chmap *map, int speaker)
-{
-    int index = mp_chmap_find_speaker(map, speaker);
-    if (index >= 0) {
-        for (int n = index; n < map->num - 1; n++)
-            map->speaker[n] = map->speaker[n + 1];
-        map->num--;
-    }
-}
-
-// Some decoders output additional, redundant channels, which are usually
-// useless and will mess up proper audio output channel handling.
-// map: channel map from which the channels should be removed
-// requested: if not NULL, and if it contains any of the "useless" channels,
-//            don't remove them (this is for convenience)
-void mp_chmap_remove_useless_channels(struct mp_chmap *map,
-                                      const struct mp_chmap *requested)
-{
-    if (requested &&
-        mp_chmap_find_speaker(requested, MP_SPEAKER_ID_DL) >= 0)
-        return;
-
-    if (map->num > 2) {
-        mp_chmap_remove_speaker(map, MP_SPEAKER_ID_DL);
-        mp_chmap_remove_speaker(map, MP_SPEAKER_ID_DR);
     }
 }
 

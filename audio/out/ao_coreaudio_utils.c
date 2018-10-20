@@ -1,18 +1,18 @@
 /*
  * This file is part of mpv.
  *
- * mpv is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2 of the License, or
- * (at your option) any later version.
+ * mpv is free software; you can redistribute it and/or
+ * modify it under the terms of the GNU Lesser General Public
+ * License as published by the Free Software Foundation; either
+ * version 2.1 of the License, or (at your option) any later version.
  *
  * mpv is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
+ * GNU Lesser General Public License for more details.
  *
- * You should have received a copy of the GNU General Public License along
- * with mpv.  If not, see <http://www.gnu.org/licenses/>.
+ * You should have received a copy of the GNU Lesser General Public
+ * License along with mpv.  If not, see <http://www.gnu.org/licenses/>.
  */
 
 /*
@@ -22,14 +22,16 @@
  * on CoreAudio but not the AUHAL (such as using AudioQueue services).
  */
 
-#include <CoreAudio/HostTime.h>
-
 #include "audio/out/ao_coreaudio_utils.h"
-#include "audio/out/ao_coreaudio_properties.h"
 #include "osdep/timer.h"
 #include "osdep/endian.h"
 #include "osdep/semaphore.h"
 #include "audio/format.h"
+
+#if HAVE_COREAUDIO
+#include "audio/out/ao_coreaudio_properties.h"
+#include <CoreAudio/HostTime.h>
+#endif
 
 CFStringRef cfstr_from_cstr(char *str)
 {
@@ -46,6 +48,7 @@ char *cfstr_get_cstr(CFStringRef cfstr)
     return buffer;
 }
 
+#if HAVE_COREAUDIO
 static bool ca_is_output_device(struct ao *ao, AudioDeviceID dev)
 {
     size_t n_buffers;
@@ -114,6 +117,13 @@ OSStatus ca_select_device(struct ao *ao, char* name, AudioDeviceID *device)
             kAudioObjectSystemObject, &p_addr, 0, 0, &size, &v);
         CFRelease(uid);
         CHECK_CA_ERROR("unable to query for device UID");
+
+        uint32_t is_alive = 1;
+        err = CA_GET(*device, kAudioDevicePropertyDeviceIsAlive, &is_alive);
+        CHECK_CA_ERROR("could not check whether device is alive (invalid device?)");
+
+        if (!is_alive)
+            MP_WARN(ao, "device is not alive!\n");
     } else {
         // device not set by user, get the default one
         err = CA_GET(kAudioObjectSystemObject,
@@ -135,37 +145,13 @@ OSStatus ca_select_device(struct ao *ao, char* name, AudioDeviceID *device)
 coreaudio_error:
     return err;
 }
-
-char *fourcc_repr_buf(char *buf, size_t buf_size, uint32_t code)
-{
-    // Extract FourCC letters from the uint32_t and finde out if it's a valid
-    // code that is made of letters.
-    unsigned char fcc[4] = {
-        (code >> 24) & 0xFF,
-        (code >> 16) & 0xFF,
-        (code >> 8)  & 0xFF,
-        code         & 0xFF,
-    };
-
-    bool valid_fourcc = true;
-    for (int i = 0; i < 4; i++) {
-        if (fcc[i] < 32 || fcc[i] >= 128)
-            valid_fourcc = false;
-    }
-
-    if (valid_fourcc)
-        snprintf(buf, buf_size, "'%c%c%c%c'", fcc[0], fcc[1], fcc[2], fcc[3]);
-    else
-        snprintf(buf, buf_size, "%u", (unsigned int)code);
-
-    return buf;
-}
+#endif
 
 bool check_ca_st(struct ao *ao, int level, OSStatus code, const char *message)
 {
     if (code == noErr) return true;
 
-    mp_msg(ao->log, level, "%s (%s)\n", message, fourcc_repr(code));
+    mp_msg(ao->log, level, "%s (%s/%d)\n", message, mp_tag_str(code), (int)code);
 
     return false;
 }
@@ -258,7 +244,7 @@ void ca_print_asbd(struct ao *ao, const char *description,
                    const AudioStreamBasicDescription *asbd)
 {
     uint32_t flags  = asbd->mFormatFlags;
-    char *format    = fourcc_repr(asbd->mFormatID);
+    char *format    = mp_tag_str(asbd->mFormatID);
     int mpfmt       = ca_asbd_to_mp_format(asbd);
 
     MP_VERBOSE(ao,
@@ -324,6 +310,7 @@ int64_t ca_frames_to_us(struct ao *ao, uint32_t frames)
     return frames / (float) ao->samplerate * 1e6;
 }
 
+#if HAVE_COREAUDIO
 int64_t ca_get_latency(const AudioTimeStamp *ts)
 {
     uint64_t out = AudioConvertHostTimeToNanos(ts->mHostTime);
@@ -348,6 +335,9 @@ bool ca_stream_supports_compressed(struct ao *ao, AudioStreamID stream)
 
     for (int i = 0; i < n_formats; i++) {
         AudioStreamBasicDescription asbd = formats[i].mFormat;
+
+        ca_print_asbd(ao, "- ", &asbd);
+
         if (ca_formatid_is_compressed(asbd.mFormatID)) {
             talloc_free(formats);
             return true;
@@ -355,30 +345,6 @@ bool ca_stream_supports_compressed(struct ao *ao, AudioStreamID stream)
     }
 
     talloc_free(formats);
-coreaudio_error:
-    return false;
-}
-
-bool ca_device_supports_compressed(struct ao *ao, AudioDeviceID device)
-{
-    AudioStreamID *streams = NULL;
-    size_t n_streams;
-
-    /* Retrieve all the output streams. */
-    OSStatus err =
-        CA_GET_ARY_O(device, kAudioDevicePropertyStreams, &streams, &n_streams);
-
-    CHECK_CA_ERROR("could not get number of streams.");
-
-    for (int i = 0; i < n_streams; i++) {
-        if (ca_stream_supports_compressed(ao, streams[i])) {
-            talloc_free(streams);
-            return true;
-        }
-    }
-
-    talloc_free(streams);
-
 coreaudio_error:
     return false;
 }
@@ -470,7 +436,7 @@ int64_t ca_get_device_latency_us(struct ao *ao, AudioDeviceID device)
         if (err == noErr) {
             latency_frames += temp;
             MP_VERBOSE(ao, "Latency property %s: %d frames\n",
-                       fourcc_repr(latency_properties[n]), (int)temp);
+                       mp_tag_str(latency_properties[n]), (int)temp);
         }
     }
 
@@ -561,4 +527,4 @@ coreaudio_error:
     sem_destroy(&wakeup);
     return format_set;
 }
-
+#endif

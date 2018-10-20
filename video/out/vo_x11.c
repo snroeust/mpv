@@ -28,7 +28,6 @@
 #include "vo.h"
 #include "video/csputils.h"
 #include "video/mp_image.h"
-#include "video/filter/vf.h"
 
 #include <X11/Xlib.h>
 #include <X11/Xutil.h>
@@ -37,11 +36,9 @@
 
 #include "x11_common.h"
 
-#if HAVE_SHM
 #include <sys/ipc.h>
 #include <sys/shm.h>
 #include <X11/extensions/XShm.h>
-#endif
 
 #include "sub/osd.h"
 #include "sub/draw_bmp.h"
@@ -77,12 +74,11 @@ struct priv {
     XVisualInfo vinfo;
 
     int current_buf;
+    bool reset_view;
 
-#if HAVE_SHM
     int Shmem_Flag;
     XShmSegmentInfo Shminfo[2];
     int Shm_Warned_Slow;
-#endif
 };
 
 static bool resize(struct vo *vo);
@@ -90,7 +86,6 @@ static bool resize(struct vo *vo);
 static bool getMyXImage(struct priv *p, int foo)
 {
     struct vo *vo = p->vo;
-#if HAVE_SHM && HAVE_XEXT
     if (vo->x11->display_is_local && XShmQueryExtension(vo->x11->display)) {
         p->Shmem_Flag = 1;
         vo->x11->ShmCompletionEvent = XShmGetEventBase(vo->x11->display)
@@ -135,34 +130,29 @@ static bool getMyXImage(struct priv *p, int foo)
     } else {
 shmemerror:
         p->Shmem_Flag = 0;
-#endif
-    MP_VERBOSE(vo, "Not using SHM.\n");
-    p->myximage[foo] =
-        XCreateImage(vo->x11->display, p->vinfo.visual, p->depth, ZPixmap,
-                     0, NULL, p->image_width, p->image_height, 8, 0);
-    if (!p->myximage[foo]) {
-        MP_WARN(vo, "could not allocate image");
-        return false;
+
+        MP_VERBOSE(vo, "Not using SHM.\n");
+        p->myximage[foo] =
+            XCreateImage(vo->x11->display, p->vinfo.visual, p->depth, ZPixmap,
+                         0, NULL, p->image_width, p->image_height, 8, 0);
+        if (!p->myximage[foo]) {
+            MP_WARN(vo, "could not allocate image");
+            return false;
+        }
+        p->myximage[foo]->data =
+            calloc(1, p->myximage[foo]->bytes_per_line * p->image_height + 32);
     }
-    p->myximage[foo]->data =
-        calloc(1, p->myximage[foo]->bytes_per_line * p->image_height + 32);
-#if HAVE_SHM && HAVE_XEXT
-}
-#endif
     return true;
 }
 
 static void freeMyXImage(struct priv *p, int foo)
 {
-#if HAVE_SHM && HAVE_XEXT
     struct vo *vo = p->vo;
     if (p->Shmem_Flag) {
         XShmDetach(vo->x11->display, &p->Shminfo[foo]);
         XDestroyImage(p->myximage[foo]);
         shmdt(p->Shminfo[foo].shmaddr);
-    } else
-#endif
-    {
+    } else {
         if (p->myximage[foo])
             XDestroyImage(p->myximage[foo]);
     }
@@ -185,6 +175,7 @@ const struct fmt_entry {
     {IMGFMT_RGB0,   32, LSBFirst,     0x000000FF, 0x0000FF00, 0x00FF0000},
     {IMGFMT_BGR0,   32, MSBFirst,     0x0000FF00, 0x00FF0000, 0xFF000000},
     {IMGFMT_BGR0,   32, LSBFirst,     0x00FF0000, 0x0000FF00, 0x000000FF},
+    {IMGFMT_RGB565, 16, LSBFirst,     0x0000F800, 0x000007E0, 0x0000001F},
     {0}
 };
 
@@ -207,7 +198,6 @@ static int reconfig(struct vo *vo, struct mp_image_params *fmt)
 static bool resize(struct vo *vo)
 {
     struct priv *p = vo->priv;
-    struct vo_x11_state *x11 = vo->x11;
 
     for (int i = 0; i < 2; i++)
         freeMyXImage(p, i);
@@ -254,21 +244,20 @@ static bool resize(struct vo *vo)
         return -1;
     }
 
-    mp_sws_set_from_cmdline(p->sws, vo->opts->sws_opts);
+    mp_sws_set_from_cmdline(p->sws, vo->global);
     p->sws->dst = (struct mp_image_params) {
         .imgfmt = fmte->mpfmt,
         .w = p->dst_w,
         .h = p->dst_h,
-        .d_w = p->dst_w,
-        .d_h = p->dst_h,
+        .p_w = 1,
+        .p_h = 1,
     };
     mp_image_params_guess_csp(&p->sws->dst);
 
     if (mp_sws_reinit(p->sws) < 0)
         return false;
 
-    XFillRectangle(x11->display, x11->window, p->gc, 0, 0, vo->dwidth, vo->dheight);
-
+    p->reset_view = true;
     vo->want_redraw = true;
     return true;
 }
@@ -279,15 +268,17 @@ static void Display_Image(struct priv *p, XImage *myximage)
 
     XImage *x_image = p->myximage[p->current_buf];
 
-#if HAVE_SHM && HAVE_XEXT
+    if (p->reset_view) {
+        XFillRectangle(vo->x11->display, vo->x11->window, p->gc, 0, 0, vo->dwidth, vo->dheight);
+        p->reset_view = false;
+    }
+
     if (p->Shmem_Flag) {
         XShmPutImage(vo->x11->display, vo->x11->window, p->gc, x_image,
                      0, 0, p->dst.x0, p->dst.y0, p->dst_w, p->dst_h,
                      True);
         vo->x11->ShmCompletionWaitCount++;
-    } else
-#endif
-    {
+    } else {
         XPutImage(vo->x11->display, vo->x11->window, p->gc, x_image,
                   0, 0, p->dst.x0, p->dst.y0, p->dst_w, p->dst_h);
     }
@@ -307,7 +298,6 @@ static struct mp_image get_x_buffer(struct priv *p, int buf_index)
 
 static void wait_for_completion(struct vo *vo, int max_outstanding)
 {
-#if HAVE_SHM && HAVE_XEXT
     struct priv *ctx = vo->priv;
     struct vo_x11_state *x11 = vo->x11;
     if (ctx->Shmem_Flag) {
@@ -321,7 +311,6 @@ static void wait_for_completion(struct vo *vo, int max_outstanding)
             vo_x11_check_events(vo);
         }
     }
-#endif
 }
 
 static void flip_page(struct vo *vo)
@@ -406,6 +395,8 @@ static int preinit(struct vo *vo)
         goto error;
 
     p->gc = XCreateGC(x11->display, x11->window, 0, NULL);
+    MP_WARN(vo, "Warning: this legacy VO has bad performance. Consider fixing "
+                "your graphics drivers, or not forcing the x11 VO.\n");
     return 0;
 
 error:
@@ -417,8 +408,6 @@ static int control(struct vo *vo, uint32_t request, void *data)
 {
     struct priv *p = vo->priv;
     switch (request) {
-    case VOCTRL_GET_PANSCAN:
-        return VO_TRUE;
     case VOCTRL_SET_PANSCAN:
         if (vo->config_ok)
             resize(vo);
@@ -446,5 +435,7 @@ const struct vo_driver video_out_x11 = {
     .control = control,
     .draw_image = draw_image,
     .flip_page = flip_page,
+    .wakeup = vo_x11_wakeup,
+    .wait_events = vo_x11_wait_events,
     .uninit = uninit,
 };
