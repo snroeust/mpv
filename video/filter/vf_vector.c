@@ -31,10 +31,14 @@
 #include <math.h>
 #include "config.h"
 #include "common/msg.h"
+#include "filters/filter.h"
+#include "filters/filter_internal.h"
+#include "filters/user_filters.h"
 #include "options/options.h"
+#include "video/img_format.h"
 
 #include "video/mp_image.h"
-#include "vf.h"
+#include "video/mp_image_pool.h"
 
 #include "video/out/vo.h"
 
@@ -42,21 +46,26 @@
 
 #include <cv.h>
 
-
-static struct vf_priv_s {
-    int cfg_width, cfg_height;
+struct vf_vector_opts{
+    int width, height;
     double cfg_move_scale;
     double cfg_blank_scale;
-    double cfg_min_length;
+    double min_length;
     int cfg_sort;
-    int cfg_dither;
-} const vf_priv_dflt = {
+    int dithering;    
+};
+
+struct vf_priv_s {
+    struct vf_vector_opts *opts;
+    struct mp_image_pool *pool;
+};
+/*const vf_priv_dflt = {
     800, 600,
     0,
     0,
     3,
     1
-};
+};*/
 
 typedef union vector{
     struct{
@@ -71,7 +80,7 @@ typedef union vector{
 //static unsigned long jump_to(vector_t** path, IplImage* ocv_in, unsigned long total_time , struct vf_priv_s* config, CvPoint* location);
 static unsigned long calculate_move_time(CvSeq* contour, CvPoint* current_point, double move_speed);
 static unsigned long calculate_contour_time(IplImage* image, CvSeq* contour, CvPoint* current_point, double move_speed);
-static vector_t* add_point(struct vf_priv_s* priv, vector_t* p, IplImage* image , unsigned long length, CvPoint* point, unsigned int z);
+static vector_t* add_points(struct vf_priv_s* priv, vector_t* p, IplImage* image , unsigned long length, CvPoint* point, unsigned int z);
 
 static void mp_to_ocv_image(IplImage* out, struct mp_image* in)
 {
@@ -92,17 +101,49 @@ static void mp_to_ocv_image(IplImage* out, struct mp_image* in)
     out->imageData = in->planes[0];
     out->imageDataOrigin = in->planes[0];
     out->nChannels = in->fmt.bpp[0] / 8; //Bytes per pixel
-    out->widthStep = (mp_image_plane_w(in, 0) * in->fmt.bpp[0] + 7) / 8;
+    out->widthStep = in->stride[0]; //(mp_image_plane_w(in, 0) * in->fmt.bpp[0] + 7) / 8;
     out->imageSize = out->widthStep * out->height;
 }
 
-static struct mp_image *filter(struct vf_instance *vf, struct mp_image *mpi_in)
-{
+static void vf_vector_process(struct mp_filter *vf){
+
     struct vf_priv_s* priv = vf->priv;
-    struct mp_image* mpi_out = mp_image_alloc(IMGFMT_RGB0, priv->cfg_width, priv->cfg_height);
-    if (!mpi_out) return NULL;
-    if (!mp_image_make_writeable(mpi_out)) return NULL;
-    struct mp_image* mpi_work = mp_image_new_copy(mpi_in); //cvFindContours modifies the input, take a copy because we don't own the input image.
+    struct vf_vector_opts* opts = priv->opts;
+    
+    if (!mp_pin_can_transfer_data(vf->ppins[1], vf->ppins[0])) return;
+    
+    struct mp_frame frame = mp_pin_out_read(vf->ppins[0]);
+    
+    if (mp_frame_is_signaling(frame)) {
+        mp_pin_in_write(vf->ppins[1], frame);
+        return;
+    }
+    if (frame.type != MP_FRAME_VIDEO) {
+        MP_ERR(vf, "unsupported frame type\n");
+        mp_frame_unref(&frame);
+        mp_filter_internal_mark_failed(vf);
+        return;
+    }
+    
+    struct mp_image *mpi_in = frame.data;
+    
+    struct mp_image* mpi_out = mp_image_pool_get(priv->pool, IMGFMT_RGB0, opts->width, opts->height);
+    if (!mpi_out || !mp_image_make_writeable(mpi_out)) {
+        mp_frame_unref(&frame);
+        mp_filter_internal_mark_failed(vf);
+        return;
+    }
+    mp_image_clear(mpi_out,0,0,mpi_out->w, mpi_out->h);
+
+    struct mp_image* mpi_work = mp_image_pool_get(priv->pool, IMGFMT_Y8, mpi_in->w, mpi_in->h);
+    if (!mpi_work || !mp_image_make_writeable(mpi_work)) {
+        mp_frame_unref(&frame);
+        mp_filter_internal_mark_failed(vf);
+        return;
+    }
+    mp_image_copy_attributes(mpi_work, mpi_in);
+    mp_image_copy(mpi_work, mpi_in);
+    //struct mp_image* mpi_work = mp_image_new_copy(mpi_in); //cvFindContours modifies the input, take a copy because we don't own the input image.
     
     IplImage ocv_in;
     IplImage ocv_work;
@@ -113,12 +154,14 @@ static struct mp_image *filter(struct vf_instance *vf, struct mp_image *mpi_in)
     
     unsigned int max_time = ocv_out.width * ocv_out.height;
     vector_t* dst = (vector_t*)ocv_out.imageData;
+    vector_t* end = (vector_t*)(ocv_out.imageData + ocv_out.imageSize);
+
     
     CvMemStorage *storage = cvCreateMemStorage(0);
     CvSeq* contours;
     cvFindContours(&ocv_work, storage, &contours, sizeof(CvContour), CV_RETR_LIST, CV_CHAIN_APPROX_NONE, cvPoint(0, 0));
     
-//     if(priv->cfg_sort && contours){
+//     if(opts->cfg_sort && contours){
 //         CvMemStorage *storage_sort = cvCreateMemStorage(0);
 //         CvSeq* contours_sort = cvCreateSeq(1117343756, 128, sizeof(CvSeq*), storage_sort);
 //         CvSeq* c = 0;
@@ -149,6 +192,8 @@ static struct mp_image *filter(struct vf_instance *vf, struct mp_image *mpi_in)
 //         contours = contours_sort;
 //     }
     
+    printf("Min Length: %f\n", opts->min_length);
+
     unsigned long total_time = 0;
     
     CvPoint* last_point = 0;
@@ -158,8 +203,8 @@ static struct mp_image *filter(struct vf_instance *vf, struct mp_image *mpi_in)
         CvSeq* c = contours;
         do {
             int num_points = c->total;
-            if (num_points >= priv->cfg_min_length){
-                total_time += calculate_contour_time(&ocv_in,c, last_point, priv->cfg_move_scale);
+            if (num_points >= opts->min_length){
+                total_time += calculate_contour_time(&ocv_in,c, last_point, opts->cfg_move_scale);
                 last_point =  CV_GET_SEQ_ELEM(CvPoint, c, -1);
             }
         } while ((c = c->h_next));
@@ -173,28 +218,32 @@ static struct mp_image *filter(struct vf_instance *vf, struct mp_image *mpi_in)
         do {
             int num_points = c->total;           
             
-            if (num_points >= priv->cfg_min_length){
-                if (priv->cfg_move_scale){
+            if (num_points >= opts->min_length){
+                if (opts->cfg_move_scale){
                     //Beam move/fill
                     CvPoint* first_point = CV_GET_SEQ_ELEM(CvPoint, c, 0);
-                    unsigned long move_points = calculate_move_time(c, last_point, priv->cfg_move_scale) * scale;
-                    unsigned long on_points   = move_points * priv->cfg_blank_scale;
-                    unsigned long off_points  = move_points - on_points;
-                    dst = add_point(priv, dst, &ocv_in, off_points, first_point, 0x00);
-                    dst = add_point(priv, dst, &ocv_in, on_points,  first_point, 0xFF);
+                    unsigned long move_points = calculate_move_time(c, last_point, opts->cfg_move_scale) * scale;
+                    unsigned long off_points  = move_points * opts->cfg_blank_scale;
+                    unsigned long on_points   = move_points - off_points;
+                    if (dst+move_points >= end) {printf("Overflow2!\n"); break;}
+                    dst = add_points(priv, dst, &ocv_in, off_points, first_point, 0x00);
+                    dst = add_points(priv, dst, &ocv_in, on_points,  first_point, 0xFF);
                 }
+                if (dst >= end) {printf("Overflow1!\n"); break;}
                 
                 for (int i = 0; i < num_points; i++){
                     CvPoint* point = CV_GET_SEQ_ELEM(CvPoint, c, i);
-                    uint8_t brightness = (uint8_t)ocv_in.imageData[point->x + point->y * ocv_in.widthStep];
+                    uint8_t brightness = (uint8_t)ocv_in.imageData[point->x * ocv_in.nChannels + point->y * ocv_in.widthStep];
                     //Can only draw full vectors, accumulate rounding errors and draw one additional vector when > 1
-                    float pscale = scale * brightness;
-                    int iscale = pscale + remain;
+                    float pscale = scale  * brightness;
+                    int   iscale = pscale + remain;
                     remain += pscale - iscale;
 
-                    dst = add_point(priv, dst, &ocv_in, iscale,  point, 0xFF);
+                    if (dst+iscale >= end) {printf("Overflow2!\n"); break;}
+                    dst = add_points(priv, dst, &ocv_in, iscale,  point, 0xFF);
                 }
                 last_point = CV_GET_SEQ_ELEM(CvPoint, c, -1);
+                if (dst >= end) {printf("Overflow3!\n"); break;}
             }
         } while ((c = c->h_next));
     }
@@ -205,13 +254,15 @@ static struct mp_image *filter(struct vf_instance *vf, struct mp_image *mpi_in)
     mpi_out->pts = mpi_in->pts;
     
     cvReleaseMemStorage(&storage);
-    talloc_free(mpi_in);
-    talloc_free(mpi_work);
-    return mpi_out;
+
+    mp_frame_unref(&frame);
+    frame = (struct mp_frame){MP_FRAME_VIDEO, mpi_out};
+    mp_pin_in_write(vf->ppins[1], frame);
 }
 
-static vector_t* add_point(struct vf_priv_s* priv, vector_t* dst, IplImage* src_image , unsigned long length, CvPoint* point, unsigned int z){
-    if (priv->cfg_dither){
+
+static vector_t* add_points(struct vf_priv_s* priv, vector_t* dst, IplImage* src_image , unsigned long length, CvPoint* point, unsigned int z){
+    if (priv->opts->dithering){
         const unsigned int width = 512;
         const unsigned int height = 512;
         
@@ -238,6 +289,7 @@ static vector_t* add_point(struct vf_priv_s* priv, vector_t* dst, IplImage* src_
             dst->pattern = v.pattern;
             dst++;
         }
+//         printf("%03i,%03i\n", x, y);
     } else {
         vector_t v;
         v.z = z;
@@ -253,6 +305,7 @@ static vector_t* add_point(struct vf_priv_s* priv, vector_t* dst, IplImage* src_
             dst->pattern = v.pattern;
             dst++;
         }
+//         printf("%03i,%03i\n", v.x, v.y);
     }
     return dst;
 }
@@ -288,7 +341,7 @@ static unsigned long calculate_contour_time(IplImage* src_image, CvSeq* contour,
     for (int i = 0; i < contour->total; i++){
         CvPoint* point = CV_GET_SEQ_ELEM(CvPoint, contour, i);
         //Draw length (^= draw time) proportional to brightness
-        contour_time += (uint8_t)src_image->imageData[point->x + point->y * src_image->widthStep];
+        contour_time += (uint8_t)src_image->imageData[point->x * src_image->nChannels + point->y * src_image->widthStep];
     }
     return contour_time;
 }
@@ -296,59 +349,48 @@ static unsigned long calculate_contour_time(IplImage* src_image, CvSeq* contour,
 
 
 //-------------------------------- MPV Functions -------------------------------
+static const struct mp_filter_info vf_vector_filter = {
+    .name = "vector",
+    .process = vf_vector_process,
+    .priv_size = sizeof(struct vf_priv_s),
+};
 
-static int query_format(struct vf_instance *vf, unsigned int fmt)
+static struct mp_filter *vf_vector_create(struct mp_filter *parent, void *options)
 {
-    //Grayscale input
-    if (fmt == IMGFMT_Y8){
-        return vf_next_query_format(vf, IMGFMT_RGB0); //RGB output goes to next filter/output in chain
-    } else {
-        return 0;
+    struct mp_filter *f = mp_filter_create(parent, &vf_vector_filter);
+    if (!f) {
+        talloc_free(options);
+        return NULL;
     }
-}
 
-static int reconfig(struct vf_instance *vf, struct mp_image_params *in,
-                    struct mp_image_params *out)
-{
-    struct vf_priv_s *priv = vf->priv;
-    
-    *out = *in;
-    out->imgfmt = IMGFMT_RGB0; //Set RGB output format
-    out->w = priv->cfg_width;
-    out->h = priv->cfg_height;
-    out->d_w = out->w;
-    out->d_h = out->h;
-    
-    mp_image_params_guess_csp(out);
+    mp_filter_add_pin(f, MP_PIN_IN, "in");
+    mp_filter_add_pin(f, MP_PIN_OUT, "out");
 
-    return 0;
+    struct vf_priv_s *priv = f->priv;
+    priv->opts = talloc_steal(priv, options);
+    priv->pool = mp_image_pool_new(priv);
+
+    return f;
 }
 
 
-static int vf_open(vf_instance_t *vf){
-    vf->filter       = filter;
-    vf->reconfig     = reconfig;
-    vf->query_format = query_format;
-    return 1;
-}
-
-
-#define OPT_BASE_STRUCT struct vf_priv_s
+#define OPT_BASE_STRUCT struct vf_vector_opts
 static const m_option_t vf_opts_fields[] = {
-    OPT_INT(   "width",      cfg_width,       0, .min=1),
-    OPT_INT(   "height",     cfg_height,      0, .min=1),
+    OPT_INT(   "width",      width,       0, .min=1),
+    OPT_INT(   "height",     height,      0, .min=1),
     OPT_DOUBLE("move",       cfg_move_scale,  0, .min=0, .max=1),
     OPT_DOUBLE("blank",      cfg_blank_scale, 0, .min=0, .max=1),
-    OPT_DOUBLE("min_length", cfg_min_length,  0, .min = 0),
-    OPT_INT(   "dither",     cfg_dither,      0, .min = 0, .max=1, OPTDEF_INT(1)),
+    OPT_DOUBLE("min_length", min_length,  0, .min = 0, OPTDEF_DOUBLE(3)),
+    OPT_INT(   "dither",     dithering,      0, .min = 0, .max=1, OPTDEF_INT(1)),
     {0}
 };
 
-const vf_info_t vf_info_vector = {
-    .description   = "vector output",
-    .name          = "vector",
-    .open          = vf_open,
-    .priv_size     = sizeof(struct vf_priv_s),
-    .priv_defaults = &vf_priv_dflt,
-    .options       = vf_opts_fields,
+const struct mp_user_filter_entry vf_vector = {
+    .desc = {
+        .description   = "vector output",
+        .name          = "vector",
+        .priv_size     = sizeof(struct vf_vector_opts),
+        .options       = vf_opts_fields,
+    },
+    .create       = vf_vector_create,
 };

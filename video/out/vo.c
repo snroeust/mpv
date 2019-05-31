@@ -61,7 +61,8 @@ extern const struct vo_driver video_out_direct3d;
 extern const struct vo_driver video_out_sdl;
 extern const struct vo_driver video_out_vaapi;
 extern const struct vo_driver video_out_rpi;
-extern const struct vo_driver video_out_tkkr;
+//extern const struct vo_driver video_out_tkkr;
+extern const struct vo_driver video_out_matelight;
 extern const struct vo_driver video_out_pixelflut;
 extern const struct vo_driver video_out_pixelflut2;
 extern const struct vo_driver video_out_pixelflutudp;
@@ -109,7 +110,7 @@ const struct vo_driver *const video_out_drivers[] =
 #endif
     &video_out_lavc,
 
-    &video_out_tkkr,
+    &video_out_matelight,
     &video_out_pixelflut,
     &video_out_pixelflut2,
     &video_out_pixelflutudp,

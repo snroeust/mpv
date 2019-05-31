@@ -34,3 +34,6 @@ extern const struct mp_user_filter_entry vf_format;
 extern const struct mp_user_filter_entry vf_vdpaupp;
 extern const struct mp_user_filter_entry vf_vavpp;
 extern const struct mp_user_filter_entry vf_d3d11vpp;
+
+extern const struct mp_user_filter_entry vf_vectorraster;
+extern const struct mp_user_filter_entry vf_vector;

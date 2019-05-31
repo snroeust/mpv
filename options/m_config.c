@@ -398,7 +398,7 @@ static void add_sub_options(struct m_config *config,
     add_options(config, &next, new_optstruct, new_optstruct_def, subopts->opts);
 }
 
-#define MAX_VO_AO 16
+#define MAX_VO_AO 32
 
 struct group_entry {
     const struct m_obj_list *entry;

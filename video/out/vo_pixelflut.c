@@ -182,7 +182,7 @@ static void* draw_thread(void* arg){
 
     fprintf(stderr, "Thread %i: Running...\n",thread->id);
     
-    double pts = -100;
+//    double pts = -100;
     
     while (thread->vo->quit == 0) {
         if ((thread->socket < 0) && (draw_thread_connect(thread) == 0)) sleep(1); //Connect until succesful or exit
@@ -191,7 +191,7 @@ static void* draw_thread(void* arg){
         if (thread->vo->flip) {usleep(10); continue;} //Wait for new frame from vo thread
 //         if ((thread->vo->cfg_full_redraw == 0) && (thread->vo->current->pts == pts)) {usleep(10); continue;}
         
-        pts = thread->vo->current->pts;
+//        pts = thread->vo->current->pts;
         
         pthread_mutex_lock(&thread->frame_mutex);
         if (draw_thread_draw_frame(thread) == 0){
@@ -262,10 +262,12 @@ static int draw_thread_draw_frame(struct write_thread* thread){
             uint8_t* px = &img_data[(y * line_step) + (x * 3)];
             uint8_t* last_px = last_img_data ? &last_img_data[(y * line_step) + (x * 3)] : 0;
             if (p->cfg_full_redraw || ((last_px == 0) || (p->current->stride[0] != p->last->stride[0]) || (p->current->h != p->last->h)
-                || (abs(px[0] - last_px[0]) + abs(px[1] - last_px[1]) + abs(px[2] - last_px[2]) ) > 2)){
+                || (abs((int)px[0] - (int)last_px[0]) + abs((int)px[1] - (int)last_px[1]) + abs((int)px[2] - (int)last_px[2]) ) > 4)
+            /*|| (rand() < (RAND_MAX/10))*/){
                 
                 size_t l= 0;
-                if ((p->cfg_colorkey < 0) || (abs( (p->cfg_colorkey & 0xFF) - px[0]) + abs( ((p->cfg_colorkey >> 8) & 0xFF) - px[1]) + abs( ((p->cfg_colorkey >> 16) & 0xFF) - px[2]) ) > 25){
+                //if (x == 0 && y == 0) printf("%i %i %i %i\n", (p->cfg_colorkey & 0xFF) , (int)px[0], (p->cfg_colorkey & 0xFF) - (int)px[0], abs( (p->cfg_colorkey & 0xFF) - (int)px[0]));
+                if ((p->cfg_colorkey < 0) || (abs( (p->cfg_colorkey & 0xFF) - (int)px[0]) + abs( ((p->cfg_colorkey >> 8) & 0xFF) - (int)px[1]) + abs( ((p->cfg_colorkey >> 16) & 0xFF) - (int)px[2]) ) > 3){
                     point_t t = {p->offset_x + x, p->offset_y + y};
                     
                     if (p->cfg_grayscale_optimize && (px[0] == px[1]) && (px[1] == px[2])){ //Grayscale optimize
@@ -275,7 +277,7 @@ static int draw_thread_draw_frame(struct write_thread* thread){
                     }
                     
                 } else {
-                    l = sprintf(d, "PX %i %i 000000\n", p->offset_x + x, p->offset_y + y);
+//                    l = sprintf(d, "PX %i %i 000000\n", p->offset_x + x, p->offset_y + y);
                 }
                 d+=l;
                 len +=l;
@@ -353,7 +355,12 @@ static void uninit(struct vo *vo){
 static int preinit(struct vo *vo){
     
     struct priv *p = vo->priv;
-    if (!p->hostname) return -1;
+    if (!p->hostname){
+        printf("Pixeflut server not specified!");
+        return -1;
+    }
+    printf("Pixeflut server: %s\n", p->hostname);
+    printf("Colorkey: %06x\n", p->cfg_colorkey);
     p->last = 0;
     p->current = 0;
     
@@ -378,7 +385,7 @@ const struct vo_driver video_out_pixelflut =
     .untimed = false,
     .priv_size = sizeof(struct priv),
     .options = (const struct m_option[]) {
-        OPT_STRING("hostname", hostname,        0),
+        OPT_STRING("server", hostname,        0),
         OPT_INT("x",           offset_x,        0),
         OPT_INT("y",           offset_y,        0),
         OPT_INT("colorkey",    cfg_colorkey,    0, OPTDEF_INT(-1)),

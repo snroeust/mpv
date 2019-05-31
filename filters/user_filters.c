@@ -79,6 +79,10 @@ const struct mp_user_filter_entry *vf_list[] = {
 #if HAVE_D3D_HWACCEL
     &vf_d3d11vpp,
 #endif
+    &vf_vectorraster,
+#if HAVE_OPENCV
+    &vf_vector,
+#endif
 };
 
 static bool get_vf_desc(struct m_obj_desc *dst, int index)
