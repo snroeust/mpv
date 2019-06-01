@@ -267,9 +267,7 @@ static vector_t* add_points(struct vf_priv_s* priv, vector_t* dst, IplImage* src
     if (priv->opts->dithering){
         const unsigned int width = 512;
         const unsigned int height = 512;
-        
-        z  = ~z;
-        
+                
         unsigned int x;
         unsigned int y;
         
