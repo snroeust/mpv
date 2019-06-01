@@ -415,8 +415,8 @@ iconv support use --disable-iconv.",
         'func': check_pkg_config('libarchive >= 3.0.0'),
     }, {
         'name': 'opencv',
-        'desc': 'Open Computer Vision library',
-        'func': check_pkg_config('opencv'),
+        'desc': 'Open Computer Vision library (Version 3)',
+        'func': check_pkg_config('opencv3'),
     }
 ]
 
