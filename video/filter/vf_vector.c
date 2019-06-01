@@ -192,7 +192,7 @@ static void vf_vector_process(struct mp_filter *vf){
 //         contours = contours_sort;
 //     }
     
-    printf("Min Length: %f\n", opts->min_length);
+//    printf("Min Length: %f\n", opts->min_length);
 
     unsigned long total_time = 0;
     
@@ -239,7 +239,7 @@ static void vf_vector_process(struct mp_filter *vf){
                     int   iscale = pscale + remain;
                     remain += pscale - iscale;
 
-                    if (dst+iscale >= end) {printf("Overflow2!\n"); break;}
+                    if (dst+iscale >= end) {printf("Overflow3!\n"); break;}
                     dst = add_points(priv, dst, &ocv_in, iscale,  point, 0xFF);
                 }
                 last_point = CV_GET_SEQ_ELEM(CvPoint, c, -1);
@@ -255,6 +255,8 @@ static void vf_vector_process(struct mp_filter *vf){
     
     cvReleaseMemStorage(&storage);
 
+    talloc_free(mpi_work);
+    
     mp_frame_unref(&frame);
     frame = (struct mp_frame){MP_FRAME_VIDEO, mpi_out};
     mp_pin_in_write(vf->ppins[1], frame);
