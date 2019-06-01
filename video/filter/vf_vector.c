@@ -239,11 +239,11 @@ static void vf_vector_process(struct mp_filter *vf){
                     int   iscale = pscale + remain;
                     remain += pscale - iscale;
 
-                    if (dst+iscale >= end) {printf("Overflow3!\n"); break;}
+                    if (dst+iscale > end) {printf("Overflow3 by %i!\n", (dst+iscale) - end); break;}
                     dst = add_points(priv, dst, &ocv_in, iscale,  point, 0xFF);
                 }
                 last_point = CV_GET_SEQ_ELEM(CvPoint, c, -1);
-                if (dst >= end) {printf("Overflow3!\n"); break;}
+                if (dst > end) {printf("Overflow4 by %i!\n", dst-end); break;}
             }
         } while ((c = c->h_next));
     }
