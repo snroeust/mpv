@@ -495,6 +495,7 @@ def build(ctx):
         ( "video/out/vo_pixelflutudp.c" ),
         ( "video/out/vo_pixelfluteth0.c" ),
         ( "video/out/vo_pixelflutentropia.c" ),
+        ( "video/out/vo_matelight.c" ),
         ( "video/out/vulkan/context.c",          "vulkan" ),
         ( "video/out/vulkan/context_wayland.c",  "vulkan && wayland" ),
         ( "video/out/vulkan/context_win.c",      "vulkan && win32-desktop" ),
