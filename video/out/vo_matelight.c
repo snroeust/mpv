@@ -23,7 +23,6 @@
 #include <sys/stat.h>
 
 #include <sys/types.h>
-#include <sys/socket.h> 
 #include <unistd.h>
 #include <netinet/in.h>
 
@@ -58,35 +57,17 @@ typedef struct matelight_frame{
 struct priv {
     char *hostname;
     unsigned int port;
-    struct sockaddr_in dest_addr;
     
     int fd;
     matelight_frame_t msg;
 };
 
 static void draw_image(struct vo *vo, mp_image_t *in){
-    struct priv *p = vo->priv;
-    //Initialize Art-Net message
-    
-    int nChannels = in->fmt.bpp[0] / 8; //Bytes per pixel
-    
-    int widthStep = in->stride[0];
-    int width = in->w;
-    if (width > IMAGE_WIDTH) width = IMAGE_WIDTH;
-    int height = in->h;
-    if (height > IMAGE_HEIGHT) height = IMAGE_HEIGHT;
-    
-    for (int x = 0; x < width; x++){
-        for (int y = 0; y < height; y++){
-            uint8_t* dst = &p->msg.data[(x * 3) + (y * IMAGE_WIDTH * 3)];
-            uint8_t* src = &in->planes[0][(y * widthStep) + (x*nChannels)];
-            memcpy(dst,src,3);
-        }
-    }
+
 }
 
 static void flip_page(struct vo *vo){
-    struct priv *p = vo->priv;
+    
 }
 
 static int query_format(struct vo *vo, int fmt){
@@ -100,26 +81,12 @@ static int reconfig(struct vo *vo, struct mp_image_params *params){
 }
 
 static void uninit(struct vo *vo){
-    struct priv *p = vo->priv;
 
-    close(p->fd);
-    p->fd = -1;
 }
 
 static int preinit(struct vo *vo)
 {
-    struct priv *p = vo->priv;
-    if (!p->hostname) return -1;
-    if (!p->port) p->port = 1337;
-    
-    p->fd = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
-    printf("Opened socket %i\n", p->fd);
-    if (p->fd < 0) return -1;
-    
-    memset((char *) &p->dest_addr, 0, sizeof(struct sockaddr_in)); 
-    p->dest_addr.sin_family = AF_INET;
-    p->dest_addr.sin_port = htons(p->port);
-    if (inet_aton(p->hostname, &p->dest_addr.sin_addr)==0) return -1;
+
         
     return 0;
 }
