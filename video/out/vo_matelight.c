@@ -22,7 +22,6 @@
 #include <stdbool.h>
 #include <sys/stat.h>
 
-#include <arpa/inet.h>
 #include <sys/types.h>
 #include <sys/socket.h> 
 #include <unistd.h>
@@ -88,9 +87,6 @@ static void draw_image(struct vo *vo, mp_image_t *in){
 
 static void flip_page(struct vo *vo){
     struct priv *p = vo->priv;
-    if (sendto(p->fd, &(p->msg), sizeof(matelight_frame_t), 0, &p->dest_addr, sizeof(p->dest_addr)) < 0){
-        perror("Sendto failed");
-    }
 }
 
 static int query_format(struct vo *vo, int fmt){
